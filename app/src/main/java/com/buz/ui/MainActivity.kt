@@ -14,6 +14,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -533,19 +537,19 @@ private fun RoseAndStats(
                     style = MaterialTheme.typography.titleSmall)
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Icon(androidx.compose.material.icons.Icons.Default.Email, contentDescription = "Email", modifier = Modifier.size(14.dp))
+                    Icon(Icons.Filled.Email, contentDescription = "Email", modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("andre.ramirez.@uni.pe", style = MaterialTheme.typography.bodySmall)
                 }
                 Spacer(Modifier.height(2.dp))
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Icon(androidx.compose.material.icons.Icons.Default.Phone, contentDescription = "Teléfono", modifier = Modifier.size(14.dp))
+                    Icon(Icons.Filled.Phone, contentDescription = "Teléfono", modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("+51 912103589", style = MaterialTheme.typography.bodySmall)
                 }
                 Spacer(Modifier.height(2.dp))
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Icon(androidx.compose.material.icons.Icons.Default.Info, contentDescription = "GitHub", modifier = Modifier.size(14.dp))
+                    Icon(Icons.Filled.Info, contentDescription = "GitHub", modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("github.com/rars2021", style = MaterialTheme.typography.bodySmall)
                 }

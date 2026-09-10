@@ -247,8 +247,29 @@ fun BuzApp() {
                     TextButton(onClick = { picker.launch(arrayOf("*/*")) },
                         contentPadding = PaddingValues(horizontal = 6.dp)) { Text("Abrir") }
                     TextButton(onClick = {
-                        exportPlotAsPng(context, density, poles, activeGrid, projection,
-                            polesDensity || wedgesDensity, showPlanes, emptyList(), poleColourIndex)
+                        val exportPlot = StereonetPlot(
+                            poles = visiblePoles,
+                            planes = if (showPlanes) visiblePoles else emptyList(),
+                            densityGrid = activeGrid,
+                            projection = projection,
+                            showGrid = showGrid,
+                            showPoles = showPoles,
+                            showLabels = showLabels,
+                            filledDensity = true,
+                            windows = emptyList(),
+                            poleSetIndex = visibleColourIndex,
+                            useFamilyPalette = useFamilyPalette,
+                            clusterCentres = if (autoOn) families.map { it.centre } else emptyList(),
+                            clusterAngleDeg = if (autoOn) coneAngleDeg else null,
+                            showClusterRings = showFamilyRings,
+                            familyMeanPlanes = if (autoOn && showFamilyPlanes)
+                                families.map { it.centre } else emptyList(),
+                            familyBasins = densityDetection?.basins ?: IntArray(0),
+                            familyBasinsGridSize = densityDetection?.gridSize ?: 0,
+                            familyBasinCount = densityDetection?.families?.size ?: 0,
+                            scanlineAxis = if (applyTerzaghi) scanlineAxis else null,
+                        )
+                        exportPlotAsPng(context, density, exportPlot)
                     }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("PNG") }
                     TextButton(onClick = {
                         exportCsvs(context, dataset, emptyList(), emptyList())
@@ -738,23 +759,9 @@ private fun queryDisplayName(context: Context, uri: Uri): String? {
 private fun exportPlotAsPng(
     context: Context,
     density: androidx.compose.ui.unit.Density,
-    poles: List<Pole>,
-    grid: Density.Grid?,
-    projection: ProjectionType,
-    contours: Boolean,
-    planes: Boolean,
-    windows: List<SetWindow>,
-    setAssignment: IntArray,
+    plot: StereonetPlot,
 ) {
     val bmp = PngExport.renderToBitmap(1024, 1024, density) { size ->
-        val plot = StereonetPlot(
-            poles = poles,
-            planes = if (planes) poles else emptyList(),
-            densityGrid = if (contours) grid else null,
-            projection = projection,
-            windows = windows,
-            poleSetIndex = setAssignment,
-        )
         PngRender.render(this, size, plot)
     }
     val ts = System.currentTimeMillis()

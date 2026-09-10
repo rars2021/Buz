@@ -1,0 +1,26 @@
+# Build outputs
+build/
+app/build/
+*/build/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+.gradle/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Local config — has the SDK path from this machine, must not travel
+local.properties
+
+# Keystores
+*.jks
+*.keystore
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Kotlin
+.kotlin/

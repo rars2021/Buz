@@ -42,40 +42,78 @@ object Projection {
     /**
      * Great-circle arc for a plane, as a polyline of (px, py) points on the
      * projection unit circle. Uses the pole to the plane.
+     *
+     * Extra crossing samples: whenever two consecutive sampled points straddle
+     * the equator (their z components change sign), we insert one exact
+     * `z = 0` point in between so the polyline lands on the perimeter (r = 1)
+     * instead of stopping just short of it.
      */
     fun greatCircle(polePlane: Pole, type: ProjectionType, steps: Int = 90): List<Pair<Double, Double>> {
-        // Build any two orthogonal unit vectors in the plane whose normal is the pole.
         val n = polePlane.v.normalized()
-        // Pick a helper vector not parallel to n.
         val helper = if (abs(n.z) < 0.9) Vec3(0.0, 0.0, 1.0) else Vec3(1.0, 0.0, 0.0)
         val e1 = cross(n, helper).normalized()
         val e2 = cross(n, e1).normalized()
-        val out = ArrayList<Pair<Double, Double>>(steps + 1)
-        for (i in 0..steps) {
-            val a = 2.0 * PI * i / steps
-            val v = (e1 * cos(a)) + (e2 * sin(a))
-            // Project only the lower-hemisphere part; skip points on the upper hemisphere.
-            val vl = if (v.z < 0) Vec3(-v.x, -v.y, -v.z) else v
-            out += project(Pole(vl), type)
+        val out = ArrayList<Pair<Double, Double>>(steps * 2)
+        fun vAt(a: Double): Vec3 = (e1 * cos(a)) + (e2 * sin(a))
+        // Half-step phase offset avoids any sample landing exactly at z = 0
+        // (which happens when e1 or e2 has z = 0, e.g. a plane whose pole is
+        // horizontal). Without the offset the zero-crossing insertion below
+        // misses that boundary sample and the arc endpoint is left dangling.
+        val phase = PI / steps
+        var prevA = phase
+        var prev = vAt(phase)
+        addSample(out, prev, type)
+        for (i in 1..steps) {
+            val a = phase + 2.0 * PI * i / steps
+            val v = vAt(a)
+            if (prev.z * v.z < 0.0) {
+                val t = abs(prev.z) / (abs(prev.z) + abs(v.z))
+                val midA = prevA + t * (a - prevA)
+                addSample(out, vAt(midA), type)
+            }
+            addSample(out, v, type)
+            prevA = a; prev = v
         }
         return out
     }
 
-    /** Small-circle cone around an axis at angular radius `alpha` (radians). */
+    /** Small-circle cone around an axis at angular radius `alpha` (radians).
+     *  Same equator-crossing subdivision as `greatCircle` so the arc actually
+     *  touches the perimeter when the cone bridges hemispheres. */
     fun smallCircle(axis: Pole, alphaRad: Double, type: ProjectionType, steps: Int = 90): List<Pair<Double, Double>> {
         val n = axis.v.normalized()
         val helper = if (abs(n.z) < 0.9) Vec3(0.0, 0.0, 1.0) else Vec3(1.0, 0.0, 0.0)
         val e1 = cross(n, helper).normalized()
         val e2 = cross(n, e1).normalized()
-        val out = ArrayList<Pair<Double, Double>>(steps + 1)
+        val out = ArrayList<Pair<Double, Double>>(steps * 2)
         val cosA = cos(alphaRad); val sinA = sin(alphaRad)
-        for (i in 0..steps) {
-            val t = 2.0 * PI * i / steps
-            val v = (n * cosA) + (e1 * (sinA * cos(t))) + (e2 * (sinA * sin(t)))
-            val vl = if (v.z < 0) Vec3(-v.x, -v.y, -v.z) else v
-            out += project(Pole(vl), type)
+        fun vAt(t: Double): Vec3 =
+            (n * cosA) + (e1 * (sinA * cos(t))) + (e2 * (sinA * sin(t)))
+        val phase = PI / steps
+        var prevT = phase
+        var prev = vAt(phase)
+        addSample(out, prev, type)
+        for (i in 1..steps) {
+            val t = phase + 2.0 * PI * i / steps
+            val v = vAt(t)
+            if (prev.z * v.z < 0.0) {
+                val frac = abs(prev.z) / (abs(prev.z) + abs(v.z))
+                val midT = prevT + frac * (t - prevT)
+                addSample(out, vAt(midT), type)
+            }
+            addSample(out, v, type)
+            prevT = t; prev = v
         }
         return out
+    }
+
+    private fun addSample(
+        out: ArrayList<Pair<Double, Double>>,
+        v: Vec3,
+        type: ProjectionType,
+    ) {
+        val vl = if (v.z < 0) Vec3(-v.x, -v.y, -v.z) else v
+        out += project(Pole(vl), type)
     }
 
     private fun cross(a: Vec3, b: Vec3) = Vec3(

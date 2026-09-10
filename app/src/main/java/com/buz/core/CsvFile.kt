@@ -60,12 +60,16 @@ object CsvFile {
         }
         val iQty = listOf("quantity","qty","weight").map { t.columnIndex(it) }.firstOrNull { it >= 0 } ?: -1
         val iTrav = listOf("traverse","trav","trav_id").map { t.columnIndex(it) }.firstOrNull { it >= 0 } ?: -1
-        return t.rows.mapNotNull { row ->
-            val a = row.getOrNull(iA)?.replace(',', '.')?.toDoubleOrNull() ?: return@mapNotNull null
-            val b = row.getOrNull(iB)?.replace(',', '.')?.toDoubleOrNull() ?: return@mapNotNull null
-            val q = if (iQty >= 0) row.getOrNull(iQty)?.toDoubleOrNull() ?: 1.0 else 1.0
+        val iDist = listOf("dist","distance","d","dist_m").map { t.columnIndex(it) }.firstOrNull { it >= 0 } ?: -1
+        val iRow = listOf("row","rowid","id","idx","index").map { t.columnIndex(it) }.firstOrNull { it >= 0 } ?: -1
+        return t.rows.mapIndexedNotNull { idx, row ->
+            val a = row.getOrNull(iA)?.replace(',', '.')?.toDoubleOrNull() ?: return@mapIndexedNotNull null
+            val b = row.getOrNull(iB)?.replace(',', '.')?.toDoubleOrNull() ?: return@mapIndexedNotNull null
+            val q = if (iQty >= 0) row.getOrNull(iQty)?.replace(',', '.')?.toDoubleOrNull() ?: 1.0 else 1.0
             val tr = if (iTrav >= 0) row.getOrNull(iTrav)?.toIntOrNull() else null
-            Measurement(a, b, q, tr, emptyList(), type)
+            val d = if (iDist >= 0) row.getOrNull(iDist)?.replace(',', '.')?.toDoubleOrNull() else null
+            val rid = if (iRow >= 0) row.getOrNull(iRow)?.toIntOrNull() ?: (idx + 1) else (idx + 1)
+            Measurement(a, b, q, tr, emptyList(), type, rid, distance = d)
         }
     }
 

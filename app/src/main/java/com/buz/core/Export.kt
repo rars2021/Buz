@@ -6,9 +6,66 @@ package com.buz.core
 object CsvExport {
     /** All measurements as CSV — good for round-tripping a `.DIP` to spreadsheet. */
     fun measurements(ms: List<Measurement>): String {
-        val sb = StringBuilder("a,b,quantity,traverse,type\n")
+        val sb = StringBuilder("row,a,b,quantity,traverse,dist,type\n")
         for (m in ms) {
-            sb.append("%.4f,%.4f,%.4f,%s,%s\n".format(m.a, m.b, m.quantity, m.traverseId?.toString() ?: "", m.type.name))
+            sb.append(
+                "%d,%.4f,%.4f,%.4f,%s,%s,%s\n".format(
+                    m.rowId,
+                    m.a, m.b, m.quantity,
+                    m.traverseId?.toString() ?: "",
+                    m.distance?.let { "%.4f".format(it) } ?: "",
+                    m.type.name
+                )
+            )
+        }
+        return sb.toString()
+    }
+
+    /** Dips-only variant: no `row`, no `dist`. Useful when spacing along the
+     *  scanline is not needed. */
+    fun measurementsDipsOnly(ms: List<Measurement>): String {
+        if (ms.isEmpty()) return "a,b,quantity,traverse\n"
+        val t = ms.first().type
+        val (aName, bName) = when (t) {
+            OrientationType.DIP_DIPDIR -> "dip" to "dipdir"
+            OrientationType.STRIKE_RHR_DIP, OrientationType.STRIKE_DIPQ -> "strike" to "dip"
+            OrientationType.TREND_PLUNGE -> "trend" to "plunge"
+            OrientationType.PLUNGE_TREND -> "plunge" to "trend"
+        }
+        val sb = StringBuilder("$aName,$bName,quantity,traverse\n")
+        for (m in ms) {
+            sb.append(
+                "%.4f,%.4f,%.4f,%s\n".format(
+                    m.a, m.b, m.quantity,
+                    m.traverseId?.toString() ?: ""
+                )
+            )
+        }
+        return sb.toString()
+    }
+
+    /** Write the current measurements in a form parseable back by `CsvFile`.
+     *  Column names use the orientation type of the first measurement so
+     *  reopening the file selects the same interpretation. */
+    fun measurementsRoundtrip(ms: List<Measurement>): String {
+        if (ms.isEmpty()) return "row,a,b,quantity,traverse,dist\n"
+        val t = ms.first().type
+        val (aName, bName) = when (t) {
+            OrientationType.DIP_DIPDIR -> "dip" to "dipdir"
+            OrientationType.STRIKE_RHR_DIP, OrientationType.STRIKE_DIPQ -> "strike" to "dip"
+            OrientationType.TREND_PLUNGE -> "trend" to "plunge"
+            OrientationType.PLUNGE_TREND -> "plunge" to "trend"
+        }
+        val sb = StringBuilder("row,$aName,$bName,quantity,traverse,dist\n")
+        for (m in ms) {
+            sb.append(
+                "%d,%.4f,%.4f,%.4f,%s,%s\n".format(
+                    m.rowId,
+                    m.a, m.b, m.quantity,
+                    m.traverseId?.toString() ?: "",
+                    m.distance?.let { "%.4f".format(it) } ?: ""
+                )
+            )
         }
         return sb.toString()
     }

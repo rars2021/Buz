@@ -63,7 +63,4 @@ examples/ejemplo.csv         # Datos de prueba
 
 Ver [INSTALL.md](INSTALL.md) para pasos detallados.
 
-## Notas legales
 
-- No redistribuir con el nombre "DIPS" ni imitar la marca Rocscience.
-- Los `.DIP` de la carpeta `Rocscience (DIPS,Swedge)` pertenecen a Rocscience: no incluirlos en el APK.

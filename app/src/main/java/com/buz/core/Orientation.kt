@@ -67,6 +67,12 @@ data class Measurement(
     val traverseId: Int? = null,
     val extras: List<String> = emptyList(),
     val type: OrientationType = OrientationType.DIP_DIPDIR,
+    /** 1-based row index preserved from the source file. Distinguishes two
+     *  identical readings taken at different positions along the scanline. */
+    val rowId: Int = 0,
+    /** Absolute position along the scanline from its start, in metres.
+     *  First measurement is typically at distance 0. Optional. */
+    val distance: Double? = null,
 ) {
     /** Pole to plane, or lineation, depending on the orientation type. */
     fun toPole(): Pole = when (type) {

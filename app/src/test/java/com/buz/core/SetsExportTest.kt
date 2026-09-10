@@ -23,7 +23,7 @@ class SetsExportTest {
     @Test fun csvExportHasHeaderAndRow() {
         val ms = listOf(Measurement(45.0, 90.0, 2.0, 1, emptyList(), OrientationType.DIP_DIPDIR))
         val csv = CsvExport.measurements(ms)
-        assertTrue(csv.startsWith("a,b,quantity,traverse,type"))
+        assertTrue(csv.startsWith("row,a,b,quantity,traverse,dist,type"))
         assertTrue(csv.contains("DIP_DIPDIR"))
     }
 }

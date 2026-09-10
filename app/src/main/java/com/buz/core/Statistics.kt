@@ -63,12 +63,10 @@ object Density {
      * is k standard deviations above the noise floor. We use the common
      * k = 3.
      */
-    fun kamb(poles: List<Pole>, gridSize: Int = 101, projection: ProjectionType = ProjectionType.EQUAL_AREA, k: Double = 3.0): Grid {
+    fun kamb(poles: List<Pole>, gridSize: Int = 101, projection: ProjectionType = ProjectionType.EQUAL_AREA, k: Double = 2.0): Grid {
         val n = poles.size.coerceAtLeast(1)
-        // Counting cap half-angle alpha such that (1 - cos alpha) = k^2 / (n + k^2)
         val cosAlpha = 1.0 - (k * k) / (n + k * k)
         val values = Array(gridSize) { DoubleArray(gridSize) { Double.NaN } }
-        // Precompute pole vectors
         val vs = poles.map { it.v }
         val step = 2.0 / (gridSize - 1)
         for (iy in 0 until gridSize) {
@@ -77,18 +75,19 @@ object Density {
                 val px = -1.0 + ix * step
                 val r2 = px * px + py * py
                 if (r2 > 1.0) continue
-                // Unproject (px, py) back to a lower-hemisphere unit vector.
                 val v = unproject(px, py, projection) ?: continue
                 var count = 0
                 for (u in vs) {
                     val dot = u.x * v.x + u.y * v.y + u.z * v.z
-                    // Axial: count both hemispheres
-                    if (abs(dot) >= cosAlpha) count++
+                    // Non-axial: only the actual pole location contributes.
+                    // Poles are already forced to the lower hemisphere so the
+                    // antipode would be off-plot; using |dot| there would light
+                    // up mirror regions where no pole actually is.
+                    if (dot >= cosAlpha) count++
                 }
                 values[iy][ix] = count.toDouble()
             }
         }
-        // Convert counts to sigma (standard deviations above expected).
         val expected = n * (1.0 - cosAlpha)
         val sigma = sqrt(expected * cosAlpha).coerceAtLeast(1e-9)
         var maxSig = 0.0
@@ -102,7 +101,173 @@ object Density {
         return Grid(gridSize, values, sigmaUnit = 1.0, maxSigma = maxSig)
     }
 
-    private fun unproject(px: Double, py: Double, type: ProjectionType): Vec3? {
+    /**
+     * Gaussian-kernel density on the projection disc. For each query point,
+     * sums exp(-θ²/2σ²) over all poles, where θ is the angular distance from
+     * the pole to the query. Result is scaled so 1σ Kamb-equivalent value ≈ 1.
+     *
+     * Unlike Kamb's hard counting circle (which spreads density evenly over a
+     * large disc for small N), a Gaussian bump is centred on each pole and
+     * falls off smoothly, so the heat visibly clings to the actual points and
+     * intensifies where they cluster.
+     */
+    fun gaussian(
+        poles: List<Pole>,
+        gridSize: Int = 101,
+        projection: ProjectionType = ProjectionType.EQUAL_AREA,
+        sigmaDeg: Double = 12.0,
+    ): Grid {
+        val values = Array(gridSize) { DoubleArray(gridSize) { Double.NaN } }
+        val vs = poles.map { it.v }
+        val step = 2.0 / (gridSize - 1)
+        val sigmaRad = Math.toRadians(sigmaDeg)
+        val twoSigmaSq = 2.0 * sigmaRad * sigmaRad
+        for (iy in 0 until gridSize) {
+            val py = -1.0 + iy * step
+            for (ix in 0 until gridSize) {
+                val px = -1.0 + ix * step
+                val r2 = px * px + py * py
+                if (r2 > 1.0) continue
+                val v = unproject(px, py, projection) ?: continue
+                var sum = 0.0
+                for (u in vs) {
+                    val dot = (u.x * v.x + u.y * v.y + u.z * v.z).coerceIn(-1.0, 1.0)
+                    if (dot <= 0) continue  // more than 90° away — ignore
+                    val ang = acos(dot)
+                    sum += exp(-ang * ang / twoSigmaSq)
+                }
+                values[iy][ix] = sum
+            }
+        }
+        var maxV = 0.0
+        for (iy in 0 until gridSize) for (ix in 0 until gridSize) {
+            val v = values[iy][ix]
+            if (!v.isNaN() && v > maxV) maxV = v
+        }
+        return Grid(gridSize, values, sigmaUnit = 1.0, maxSigma = maxV)
+    }
+
+    /**
+     * Find local maxima in a density grid and return them as Poles.
+     * A cell is a peak when it strictly exceeds every 8-neighbour, and is
+     * above `minFraction * maxSigma` of the grid's global max.
+     * Returned poles are sorted by descending peak intensity.
+     */
+    fun peaks(grid: Grid, projection: ProjectionType, minFraction: Double): List<Pole> {
+        val n = grid.size
+        if (n < 3 || grid.maxSigma <= 0.0) return emptyList()
+        val threshold = grid.maxSigma * minFraction.coerceIn(0.0, 1.0)
+        val step = 2.0 / (n - 1)
+        val out = ArrayList<Pair<Pole, Double>>()
+        for (iy in 1 until n - 1) {
+            for (ix in 1 until n - 1) {
+                val v = grid.values[iy][ix]
+                if (v.isNaN() || v < threshold) continue
+                var isPeak = true
+                loop@ for (dy in -1..1) for (dx in -1..1) {
+                    if (dx == 0 && dy == 0) continue
+                    val nb = grid.values[iy + dy][ix + dx]
+                    if (!nb.isNaN() && nb > v) { isPeak = false; break@loop }
+                }
+                if (isPeak) {
+                    val px = -1.0 + ix * step
+                    val py = -1.0 + iy * step
+                    unproject(px, py, projection)?.let { vec ->
+                        out += Pole(vec.lower()) to v
+                    }
+                }
+            }
+        }
+        return out.sortedByDescending { it.second }.map { it.first }
+    }
+
+    /**
+     * Watershed segmentation of a density grid: for each cell above `minValue`,
+     * follow the steepest-ascent path to a local maximum, then map that local
+     * max to the nearest `peaks` centre by angular distance. Returns a flat
+     * `IntArray(size*size)` where each entry is the basin index (peak index)
+     * or -1 if the cell is below threshold / off-plot.
+     *
+     * A walked cell is cached so the whole grid is resolved in O(n²).
+     */
+    fun basins(
+        grid: Grid,
+        peaks: List<Pole>,
+        projection: ProjectionType,
+        minValue: Double,
+    ): IntArray {
+        val n = grid.size
+        val basin = IntArray(n * n) { -1 }
+        if (peaks.isEmpty()) return basin
+        val step = 2.0 / (n - 1)
+        for (iy0 in 0 until n) for (ix0 in 0 until n) {
+            val v0 = grid.values[iy0][ix0]
+            if (v0.isNaN() || v0 < minValue) continue
+            if (basin[iy0 * n + ix0] != -1) continue
+            var cx = ix0; var cy = iy0
+            val path = ArrayList<Int>()
+            var found = -1
+            while (true) {
+                val key = cy * n + cx
+                if (basin[key] != -1) { found = basin[key]; break }
+                path += key
+                var bestV = grid.values[cy][cx]
+                var bestX = cx; var bestY = cy
+                for (dy in -1..1) for (dx in -1..1) {
+                    if (dx == 0 && dy == 0) continue
+                    val nx = cx + dx; val ny = cy + dy
+                    if (nx !in 0 until n || ny !in 0 until n) continue
+                    val nv = grid.values[ny][nx]
+                    if (!nv.isNaN() && nv > bestV) {
+                        bestV = nv; bestX = nx; bestY = ny
+                    }
+                }
+                if (bestX == cx && bestY == cy) {
+                    val lx = -1.0 + cx * step
+                    val ly = -1.0 + cy * step
+                    val vec = unproject(lx, ly, projection) ?: break
+                    var bestPeak = -1
+                    var bestDot = -2.0
+                    for ((pi, pk) in peaks.withIndex()) {
+                        val d = abs(vec.x * pk.v.x + vec.y * pk.v.y + vec.z * pk.v.z)
+                        if (d > bestDot) { bestDot = d; bestPeak = pi }
+                    }
+                    found = bestPeak
+                    break
+                }
+                cx = bestX; cy = bestY
+            }
+            for (k in path) basin[k] = found
+        }
+        return basin
+    }
+
+    /**
+     * Wedge (plane intersection) orientations. For every pair of planes given
+     * by their poles, computes the line of intersection (pole × pole), forced
+     * to the lower hemisphere. Used to feed `kamb` for a wedge density plot,
+     * which highlights the trend/plunge of intersections likely to fail as
+     * kinematic wedges.
+     */
+    fun wedgeIntersections(poles: List<Pole>): List<Pole> {
+        if (poles.size < 2) return emptyList()
+        val out = ArrayList<Pole>(poles.size * (poles.size - 1) / 2)
+        for (i in poles.indices) {
+            val a = poles[i].v
+            for (j in i + 1 until poles.size) {
+                val b = poles[j].v
+                val cx = a.y * b.z - a.z * b.y
+                val cy = a.z * b.x - a.x * b.z
+                val cz = a.x * b.y - a.y * b.x
+                val n = sqrt(cx * cx + cy * cy + cz * cz)
+                if (n < 1e-9) continue
+                out += Pole(Vec3(cx / n, cy / n, cz / n).lower())
+            }
+        }
+        return out
+    }
+
+    internal fun unproject(px: Double, py: Double, type: ProjectionType): Vec3? {
         val r = sqrt(px * px + py * py)
         if (r > 1.0) return null
         return when (type) {

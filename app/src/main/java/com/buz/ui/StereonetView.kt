@@ -108,121 +108,7 @@ fun StereonetView(
 
     Canvas(modifier = modifier.fillMaxSize().then(gestureMod)) {
         canvasSize = size
-        val cx = size.width / 2f
-        val cy = size.height / 2f
-        val r = min(size.width, size.height) / 2f * 0.90f
-        fun px(x: Double) = cx + (x * r).toFloat()
-        fun py(y: Double) = cy - (y * r).toFloat()
-
-        drawRect(color = style.background, topLeft = Offset(0f, 0f), size = Size(size.width, size.height))
-
-        if (plot.filledDensity && plot.densityGrid != null) {
-            drawHeatmap(plot.densityGrid, cx, cy, r)
-        }
-
-        if (plot.showGrid) drawGrid(cx, cy, r, plot.projection, style)
-
-        plot.densityGrid?.let { grid ->
-            val levels = adaptiveLevels(grid, plot.densityLevels)
-            for ((li, level) in levels.withIndex()) {
-                val path = marchingSquaresPath(grid, level, cx, cy, r)
-                drawPath(
-                    path,
-                    color = Color(0xFF1F3A6E).copy(alpha = (0.35f + 0.10f * li).coerceAtMost(0.9f)),
-                    style = Stroke(width = style.strokeWidthPx)
-                )
-            }
-        }
-
-        // Set windows
-        for ((i, w) in plot.windows.withIndex()) {
-            val col = setPalette[i % setPalette.size]
-            val fx0 = px(w.xMin); val fy0 = py(w.yMax)
-            val fx1 = px(w.xMax); val fy1 = py(w.yMin)
-            val topLeft = Offset(fx0, fy0)
-            val sizeRect = Size(fx1 - fx0, fy1 - fy0)
-            when (w.shape) {
-                WindowShape.RECT -> {
-                    drawRect(col.copy(alpha = 0.12f), topLeft = topLeft, size = sizeRect)
-                    drawRect(col, topLeft = topLeft, size = sizeRect, style = Stroke(style.strokeWidthPx))
-                }
-                WindowShape.ELLIPSE -> {
-                    drawOval(col.copy(alpha = 0.12f), topLeft = topLeft, size = sizeRect)
-                    drawOval(col, topLeft = topLeft, size = sizeRect, style = Stroke(style.strokeWidthPx))
-                }
-            }
-        }
-
-        for (pole in plot.planes) {
-            val pts = Projection.greatCircle(pole, plot.projection)
-            drawPolyline(pts, style.plane, style.strokeWidthPx, ::px, ::py)
-        }
-
-        drawCircle(color = style.frame, radius = r, center = Offset(cx, cy), style = Stroke(width = style.strokeWidthPx))
-        drawLine(style.frame, Offset(cx, cy - r), Offset(cx, cy - r - 12f), strokeWidth = style.strokeWidthPx)
-
-        if (plot.showLabels) drawLabels(cx, cy, r, plot.projection, style)
-
-        if (plot.clusterCentres.isNotEmpty()) {
-            // Prefer watershed basin outlines when available; otherwise fall back
-            // to the circular cone ring around each centre.
-            val useBasins = plot.familyBasins.isNotEmpty() &&
-                plot.familyBasinsGridSize > 1 && plot.familyBasinCount > 0
-            if (plot.showClusterRings) {
-                if (useBasins) {
-                    drawBasinContours(
-                        plot.familyBasins, plot.familyBasinsGridSize, plot.familyBasinCount,
-                        cx, cy, r,
-                    )
-                } else if (plot.clusterAngleDeg != null && plot.clusterAngleDeg > 0.0) {
-                    for ((i, c) in plot.clusterCentres.withIndex()) {
-                        val col = familyPalette[i % familyPalette.size]
-                        val pts = Projection.smallCircle(c, Math.toRadians(plot.clusterAngleDeg), plot.projection)
-                        drawPolyline(pts, col, style.strokeWidthPx, ::px, ::py)
-                    }
-                }
-            }
-            for ((i, c) in plot.clusterCentres.withIndex()) {
-                val col = familyPalette[i % familyPalette.size]
-                val (x, y) = Projection.project(c, plot.projection)
-                val fx = px(x); val fy = py(y)
-                drawDiamond(fx, fy, 8f, col)
-            }
-        }
-        if (plot.familyMeanPlanes.isNotEmpty()) {
-            for ((i, meanPole) in plot.familyMeanPlanes.withIndex()) {
-                val col = familyPalette[i % familyPalette.size]
-                val pts = Projection.greatCircle(meanPole, plot.projection)
-                drawPolyline(pts, col, style.strokeWidthPx + 0.5f, ::px, ::py)
-            }
-        }
-
-        plot.scanlineAxis?.let { s ->
-            val (x, y) = Projection.project(s, plot.projection)
-            val fx = px(x); val fy = py(y)
-            val col = Color(0xFF008B00)
-            drawCircle(col, radius = 8f, center = Offset(fx, fy), style = Stroke(2.5f))
-            drawLine(col, Offset(fx - 12f, fy), Offset(fx + 12f, fy), strokeWidth = 2.5f)
-            drawLine(col, Offset(fx, fy - 12f), Offset(fx, fy + 12f), strokeWidth = 2.5f)
-        }
-
-        if (plot.showPoles) {
-            val palette = if (plot.useFamilyPalette) familyPalette else setPalette
-            for ((i, pole) in plot.poles.withIndex()) {
-                val (x, y) = Projection.project(pole, plot.projection)
-                val setIdx = plot.poleSetIndex.getOrNull(i) ?: -1
-                val col = if (setIdx >= 0) palette[setIdx % palette.size] else style.pole
-                if (plot.useFamilyPalette && setIdx >= 0) {
-                    // Family poles: filled circle with a small ring so they read as
-                    // distinctly from manual-set poles even at a glance.
-                    drawCircle(color = col, radius = style.poleRadiusPx, center = Offset(px(x), py(y)))
-                    drawCircle(color = col, radius = style.poleRadiusPx + 2f, center = Offset(px(x), py(y)),
-                        style = Stroke(1f))
-                } else {
-                    drawCircle(color = col, radius = style.poleRadiusPx, center = Offset(px(x), py(y)))
-                }
-            }
-        }
+        drawStereonetPlot(size, plot, style)
 
         val s = dragStart; val e = dragEnd
         if (drawingEnabled && s != null && e != null) {
@@ -230,6 +116,129 @@ fun StereonetView(
             val w = kotlin.math.abs(e.x - s.x); val h = kotlin.math.abs(e.y - s.y)
             drawRect(Color(0xFF444444).copy(alpha = 0.15f), topLeft = Offset(left, top), size = Size(w, h))
             drawRect(Color(0xFF444444), topLeft = Offset(left, top), size = Size(w, h), style = Stroke(1.5f))
+        }
+    }
+}
+
+/**
+ * Shared stereonet drawing. Called by StereonetView and by PngRender so the
+ * exported PNG mirrors the on-screen view (heatmap, labels, family basins,
+ * cluster rings, scanline axis — all of it).
+ */
+internal fun DrawScope.drawStereonetPlot(
+    size: Size,
+    plot: StereonetPlot,
+    style: StereonetStyle = StereonetStyle(),
+) {
+    val cx = size.width / 2f
+    val cy = size.height / 2f
+    val r = min(size.width, size.height) / 2f * 0.90f
+    fun px(x: Double) = cx + (x * r).toFloat()
+    fun py(y: Double) = cy - (y * r).toFloat()
+
+    drawRect(color = style.background, topLeft = Offset(0f, 0f), size = Size(size.width, size.height))
+
+    if (plot.filledDensity && plot.densityGrid != null) {
+        drawHeatmap(plot.densityGrid, cx, cy, r)
+    }
+
+    if (plot.showGrid) drawGrid(cx, cy, r, plot.projection, style)
+
+    plot.densityGrid?.let { grid ->
+        val levels = adaptiveLevels(grid, plot.densityLevels)
+        for ((li, level) in levels.withIndex()) {
+            val path = marchingSquaresPath(grid, level, cx, cy, r)
+            drawPath(
+                path,
+                color = Color(0xFF1F3A6E).copy(alpha = (0.35f + 0.10f * li).coerceAtMost(0.9f)),
+                style = Stroke(width = style.strokeWidthPx)
+            )
+        }
+    }
+
+    // Set windows
+    for ((i, w) in plot.windows.withIndex()) {
+        val col = setPalette[i % setPalette.size]
+        val fx0 = px(w.xMin); val fy0 = py(w.yMax)
+        val fx1 = px(w.xMax); val fy1 = py(w.yMin)
+        val topLeft = Offset(fx0, fy0)
+        val sizeRect = Size(fx1 - fx0, fy1 - fy0)
+        when (w.shape) {
+            WindowShape.RECT -> {
+                drawRect(col.copy(alpha = 0.12f), topLeft = topLeft, size = sizeRect)
+                drawRect(col, topLeft = topLeft, size = sizeRect, style = Stroke(style.strokeWidthPx))
+            }
+            WindowShape.ELLIPSE -> {
+                drawOval(col.copy(alpha = 0.12f), topLeft = topLeft, size = sizeRect)
+                drawOval(col, topLeft = topLeft, size = sizeRect, style = Stroke(style.strokeWidthPx))
+            }
+        }
+    }
+
+    for (pole in plot.planes) {
+        val pts = Projection.greatCircle(pole, plot.projection)
+        drawPolyline(pts, style.plane, style.strokeWidthPx, ::px, ::py)
+    }
+
+    drawCircle(color = style.frame, radius = r, center = Offset(cx, cy), style = Stroke(width = style.strokeWidthPx))
+    drawLine(style.frame, Offset(cx, cy - r), Offset(cx, cy - r - 12f), strokeWidth = style.strokeWidthPx)
+
+    if (plot.showLabels) drawLabels(cx, cy, r, plot.projection, style)
+
+    if (plot.clusterCentres.isNotEmpty()) {
+        val useBasins = plot.familyBasins.isNotEmpty() &&
+            plot.familyBasinsGridSize > 1 && plot.familyBasinCount > 0
+        if (plot.showClusterRings) {
+            if (useBasins) {
+                drawBasinContours(
+                    plot.familyBasins, plot.familyBasinsGridSize, plot.familyBasinCount,
+                    cx, cy, r,
+                )
+            } else if (plot.clusterAngleDeg != null && plot.clusterAngleDeg > 0.0) {
+                for ((i, c) in plot.clusterCentres.withIndex()) {
+                    val col = familyPalette[i % familyPalette.size]
+                    val pts = Projection.smallCircle(c, Math.toRadians(plot.clusterAngleDeg), plot.projection)
+                    drawPolyline(pts, col, style.strokeWidthPx, ::px, ::py)
+                }
+            }
+        }
+        for ((i, c) in plot.clusterCentres.withIndex()) {
+            val col = familyPalette[i % familyPalette.size]
+            val (x, y) = Projection.project(c, plot.projection)
+            val fx = px(x); val fy = py(y)
+            drawDiamond(fx, fy, 8f, col)
+        }
+    }
+    if (plot.familyMeanPlanes.isNotEmpty()) {
+        for ((i, meanPole) in plot.familyMeanPlanes.withIndex()) {
+            val col = familyPalette[i % familyPalette.size]
+            val pts = Projection.greatCircle(meanPole, plot.projection)
+            drawPolyline(pts, col, style.strokeWidthPx + 0.5f, ::px, ::py)
+        }
+    }
+
+    plot.scanlineAxis?.let { s ->
+        val (x, y) = Projection.project(s, plot.projection)
+        val fx = px(x); val fy = py(y)
+        val col = Color(0xFF008B00)
+        drawCircle(col, radius = 8f, center = Offset(fx, fy), style = Stroke(2.5f))
+        drawLine(col, Offset(fx - 12f, fy), Offset(fx + 12f, fy), strokeWidth = 2.5f)
+        drawLine(col, Offset(fx, fy - 12f), Offset(fx, fy + 12f), strokeWidth = 2.5f)
+    }
+
+    if (plot.showPoles) {
+        val palette = if (plot.useFamilyPalette) familyPalette else setPalette
+        for ((i, pole) in plot.poles.withIndex()) {
+            val (x, y) = Projection.project(pole, plot.projection)
+            val setIdx = plot.poleSetIndex.getOrNull(i) ?: -1
+            val col = if (setIdx >= 0) palette[setIdx % palette.size] else style.pole
+            if (plot.useFamilyPalette && setIdx >= 0) {
+                drawCircle(color = col, radius = style.poleRadiusPx, center = Offset(px(x), py(y)))
+                drawCircle(color = col, radius = style.poleRadiusPx + 2f, center = Offset(px(x), py(y)),
+                    style = Stroke(1f))
+            } else {
+                drawCircle(color = col, radius = style.poleRadiusPx, center = Offset(px(x), py(y)))
+            }
         }
     }
 }

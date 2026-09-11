@@ -10,8 +10,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -253,7 +251,6 @@ fun BuzApp() {
                 NavigationBarItem(tab == 0, { tab = 0 }, icon = {}, label = { Text("Red") })
                 NavigationBarItem(tab == 1, { tab = 1 }, icon = {}, label = { Text("Datos") })
                 NavigationBarItem(tab == 2, { tab = 2 }, icon = {}, label = { Text("Estad.") })
-                NavigationBarItem(tab == 3, { tab = 3 }, icon = {}, label = { Text("Familias") })
             }
         }
     ) { padding ->
@@ -291,6 +288,15 @@ fun BuzApp() {
                     familyBasins = densityDetection?.basins ?: IntArray(0),
                     familyBasinsGridSize = densityDetection?.gridSize ?: 0,
                     familyBasinCount = densityDetection?.families?.size ?: 0,
+                    autoOn = autoOn, onAutoOn = { autoOn = it },
+                    familyMethod = familyMethod, onFamilyMethod = { familyMethod = it },
+                    autoK = autoK, onAutoK = { autoK = it },
+                    coneAngleDeg = coneAngleDeg, onConeAngle = { coneAngleDeg = it },
+                    peakMergeDeg = peakMergeDeg, onPeakMerge = { peakMergeDeg = it },
+                    families = families,
+                    familyFisher = familyFisher,
+                    familyPct = familyPct,
+                    totalPoles = poles.size,
                 )
                 1 -> {
                     saveMsg?.let {
@@ -307,16 +313,6 @@ fun BuzApp() {
                 }
                 2 -> RoseAndStats(roseBins, fisher, weights, applyTerzaghi,
                     families, familyFisher, familyPct)
-                3 -> FamiliesTab(
-                    autoOn = autoOn, onAutoOn = { autoOn = it },
-                    method = familyMethod, onMethod = { familyMethod = it },
-                    k = autoK, onK = { autoK = it },
-                    angleDeg = coneAngleDeg, onAngle = { coneAngleDeg = it },
-                    sigmaDeg = polesSigmaDeg, onSigma = { polesSigmaDeg = it },
-                    peakMergeDeg = peakMergeDeg, onPeakMerge = { peakMergeDeg = it },
-                    families = families, percents = familyPct,
-                    fisherPerFamily = familyFisher, total = poles.size,
-                )
             }
         }
     }
@@ -347,8 +343,20 @@ private fun RedTab(
     familyBasins: IntArray,
     familyBasinsGridSize: Int,
     familyBasinCount: Int,
+    autoOn: Boolean, onAutoOn: (Boolean) -> Unit,
+    familyMethod: String, onFamilyMethod: (String) -> Unit,
+    autoK: Int, onAutoK: (Int) -> Unit,
+    coneAngleDeg: Double, onConeAngle: (Double) -> Unit,
+    peakMergeDeg: Double, onPeakMerge: (Double) -> Unit,
+    families: List<AutoFamilies.Family>,
+    familyFisher: List<Fisher.Result?>,
+    familyPct: List<Double>,
+    totalPoles: Int,
 ) {
-    Column(Modifier.fillMaxSize()) {
+    val sigmaVisible = polesDensity || (autoOn && familyMethod == "DENSITY")
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+    ) {
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -363,11 +371,11 @@ private fun RedTab(
             CompactChip(showGrid, { onGrid(!showGrid) }, "Grid")
             CompactChip(showLabels, { onLabels(!showLabels) }, "Métricas")
         }
-        // Parameter slider — only when a density is active.
-        if (polesDensity) {
+        // Shared σ slider — the SAME σ drives Q polos AND picos de densidad.
+        if (sigmaVisible) {
             Row(Modifier.fillMaxWidth().padding(top = 2.dp),
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Text("σ polos ${"%.0f".format(polesSigmaDeg)}°", style = MaterialTheme.typography.labelSmall,
+                Text("σ ${"%.0f".format(polesSigmaDeg)}°", style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(end = 6.dp))
                 Slider(
                     value = polesSigmaDeg.toFloat(),
@@ -390,7 +398,7 @@ private fun RedTab(
                 )
             }
         }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
             StereonetView(
                 plot = StereonetPlot(
                     poles = poles,
@@ -437,6 +445,19 @@ private fun RedTab(
                 CompactChip(showFamilyPlanes, { onFamilyPlanes(!showFamilyPlanes) }, "Planos F")
             }
         }
+
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+        FamiliesSection(
+            autoOn = autoOn, onAutoOn = onAutoOn,
+            method = familyMethod, onMethod = onFamilyMethod,
+            k = autoK, onK = onAutoK,
+            angleDeg = coneAngleDeg, onAngle = onConeAngle,
+            peakMergeDeg = peakMergeDeg, onPeakMerge = onPeakMerge,
+            families = families, percents = familyPct,
+            fisherPerFamily = familyFisher, total = totalPoles,
+        )
+        Spacer(Modifier.height(12.dp))
     }
 }
 
@@ -450,61 +471,63 @@ private fun RoseAndStats(
     fisherPerFamily: List<Fisher.Result?>,
     percents: List<Double>,
 ) {
-    Column(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxWidth().height(310.dp)) {
+    Column(
+        Modifier.fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(4.dp),
+    ) {
+        Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
             RoseView(roseBins, Modifier.fillMaxSize())
         }
         HorizontalDivider(Modifier.padding(vertical = 4.dp))
-        LazyColumn(Modifier.fillMaxWidth().weight(1f).padding(4.dp)) {
-            item {
-                Text("Fisher global", style = MaterialTheme.typography.titleSmall)
-                if (fisher == null) Text("Sin datos.", style = MaterialTheme.typography.bodySmall)
-                else {
-                    Text("N=${fisher.n}   R=${"%.3f".format(fisher.R)}", style = MaterialTheme.typography.bodySmall)
-                    Text("Media trend=${"%.1f".format(fisher.mean.trend)}°  plunge=${"%.1f".format(fisher.mean.plunge)}°",
-                        style = MaterialTheme.typography.bodySmall)
-                    Text("k=${if (fisher.k.isFinite()) "%.2f".format(fisher.k) else "∞"}   cono95=${"%.2f".format(fisher.cone95Deg)}°",
-                        style = MaterialTheme.typography.bodySmall)
-                }
-                if (applyTerzaghi && weights.isNotEmpty()) {
-                    Text("Terzaghi: Σw=${"%.1f".format(weights.sum())}  wmax=${"%.2f".format(weights.max())}",
-                        style = MaterialTheme.typography.bodySmall)
-                }
-                Spacer(Modifier.height(6.dp))
-                Text("Familias detectadas", style = MaterialTheme.typography.titleSmall)
-                if (families.isEmpty()) {
-                    Text("Sin familias activas (activá desde la pestaña Familias).",
-                        style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            items(families.size) { i ->
-                val f = families[i]; val r = fisherPerFamily.getOrNull(i)
+
+        Text("Fisher global", style = MaterialTheme.typography.titleSmall)
+        if (fisher == null) Text("Sin datos.", style = MaterialTheme.typography.bodySmall)
+        else {
+            Text("N=${fisher.n}   R=${"%.3f".format(fisher.R)}", style = MaterialTheme.typography.bodySmall)
+            Text("Media trend=${"%.1f".format(fisher.mean.trend)}°  plunge=${"%.1f".format(fisher.mean.plunge)}°",
+                style = MaterialTheme.typography.bodySmall)
+            Text("k=${if (fisher.k.isFinite()) "%.2f".format(fisher.k) else "∞"}   cono95=${"%.2f".format(fisher.cone95Deg)}°",
+                style = MaterialTheme.typography.bodySmall)
+        }
+        if (applyTerzaghi && weights.isNotEmpty()) {
+            Text("Terzaghi: Σw=${"%.1f".format(weights.sum())}  wmax=${"%.2f".format(weights.max())}",
+                style = MaterialTheme.typography.bodySmall)
+        }
+
+        Spacer(Modifier.height(6.dp))
+        Text("Familias detectadas", style = MaterialTheme.typography.titleSmall)
+        if (families.isEmpty()) {
+            Text("Sin familias activas (activá desde la sección Familias en la pestaña Red).",
+                style = MaterialTheme.typography.bodySmall)
+        } else {
+            families.forEachIndexed { i, f ->
+                val r = fisherPerFamily.getOrNull(i)
                 val pct = percents.getOrElse(i) { 0.0 }
                 Text("F${i + 1}  n=${f.members.size}  (${"%.1f".format(pct)}%)  " +
                      "centro=${"%.0f".format(f.centre.trend)}°/${"%.0f".format(f.centre.plunge)}°" +
                      (if (r != null) "  k=${if (r.k.isFinite()) "%.1f".format(r.k) else "∞"}" else ""),
                     style = MaterialTheme.typography.bodySmall)
             }
-            item {
-                Spacer(Modifier.height(24.dp))
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Text("Desarrollado por R. Sagastegui",
-                    style = MaterialTheme.typography.titleSmall)
-                Spacer(Modifier.height(4.dp))
-                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Email, contentDescription = "Email", modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("andre.ramirez.@uni.pe", style = MaterialTheme.typography.bodySmall)
-                }
-                Spacer(Modifier.height(2.dp))
-                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Info, contentDescription = "GitHub", modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("github.com/rars2021", style = MaterialTheme.typography.bodySmall)
-                }
-                Spacer(Modifier.height(12.dp))
-            }
         }
+
+        Spacer(Modifier.height(24.dp))
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        Text("Desarrollado por R. Sagastegui",
+            style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(4.dp))
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Icon(Icons.Filled.Email, contentDescription = "Email", modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("andre.ramirez.@uni.pe", style = MaterialTheme.typography.bodySmall)
+        }
+        Spacer(Modifier.height(2.dp))
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Icon(Icons.Filled.Info, contentDescription = "GitHub", modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("github.com/rars2021", style = MaterialTheme.typography.bodySmall)
+        }
+        Spacer(Modifier.height(12.dp))
     }
 }
 
@@ -520,23 +543,18 @@ private fun CompactChip(selected: Boolean, onClick: () -> Unit, label: String) {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun FamiliesTab(
+private fun FamiliesSection(
     autoOn: Boolean, onAutoOn: (Boolean) -> Unit,
     method: String, onMethod: (String) -> Unit,
     k: Int, onK: (Int) -> Unit,
     angleDeg: Double, onAngle: (Double) -> Unit,
-    sigmaDeg: Double, onSigma: (Double) -> Unit,
     peakMergeDeg: Double, onPeakMerge: (Double) -> Unit,
     families: List<AutoFamilies.Family>,
     percents: List<Double>,
     fisherPerFamily: List<Fisher.Result?>,
     total: Int,
 ) {
-    Column(
-        Modifier.fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(8.dp)
-    ) {
+    Column(Modifier.fillMaxWidth()) {
         Text("Familias automáticas", style = MaterialTheme.typography.titleMedium)
         FilterChip(autoOn, { onAutoOn(!autoOn) },
             { Text(if (autoOn) "Activas — se ven en la Red" else "Activar familias") })
@@ -565,15 +583,8 @@ private fun FamiliesTab(
                 valueRange = 1f..8f, steps = 6,
             )
         } else {
-            Text("Picos de densidad: cada máximo local del mapa de calor Gaussiano se vuelve una familia. σ chico = picos afilados, más familias. Fusión colapsa picos cercanos entre sí.",
+            Text("Picos de densidad: cada máximo local del mapa de calor Gaussiano se vuelve una familia. La σ se controla con la slider de arriba (misma que Q polos). Fusión colapsa picos cercanos entre sí.",
                 style = MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.height(6.dp))
-            Text("σ campana: ${"%.0f".format(sigmaDeg)}°   (mismo σ que Q polos)")
-            Slider(
-                value = sigmaDeg.toFloat().coerceIn(3f, 30f),
-                onValueChange = { onSigma(it.toDouble()) },
-                valueRange = 3f..30f,
-            )
             Spacer(Modifier.height(6.dp))
             Text("Fusionar picos separados por menos de: ${"%.0f".format(peakMergeDeg)}°")
             Slider(

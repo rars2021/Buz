@@ -17,7 +17,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -71,21 +70,15 @@ fun BuzApp() {
     var peakMergeDeg by remember { mutableStateOf(initial.peakMergeDeg) }
     var showFamilyRings by remember { mutableStateOf(initial.showFamilyRings) }
     var showFamilyPlanes by remember { mutableStateOf(initial.showFamilyPlanes) }
-    var scanlineTrend by remember { mutableStateOf(initial.scanlineTrend) }
-    var scanlinePlunge by remember { mutableStateOf(initial.scanlinePlunge) }
     val measurements = remember { mutableStateListOf<Measurement>() }
-    val scanlineMetas = remember { mutableStateListOf<ScanlineMeta>().apply { addAll(initial.scanlineMetas) } }
-    val hiddenSLs = remember { mutableStateListOf<Int>().apply { addAll(initial.hiddenScanlineIds) } }
 
     var tab by remember { mutableIntStateOf(0) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var saveMsg by remember { mutableStateOf<String?>(null) }
-    var scanlineExportMsg by remember { mutableStateOf<String?>(null) }
 
-    val scanlineAxis = remember(scanlineTrend, scanlinePlunge) {
-        Pole.fromTrendPlunge(scanlineTrend, scanlinePlunge)
-    }
-
+    // On first composition: try to restore the last file; then, if we still
+    // have no rows, seed the table with a few empties so the user can just
+    // start typing without opening a CSV first.
     LaunchedEffect(Unit) {
         val u = initial.lastUri
         if (u != null && dataset == null) {
@@ -95,6 +88,14 @@ fun BuzApp() {
                 measurements.clear()
                 measurements.addAll(d.measurements)
             } catch (_: Exception) { }
+        }
+        if (measurements.isEmpty()) {
+            repeat(5) { i ->
+                measurements.add(
+                    Measurement(0.0, 0.0, 1.0, null, emptyList(),
+                        OrientationType.DIP_DIPDIR, rowId = i + 1, distance = null)
+                )
+            }
         }
     }
 
@@ -118,28 +119,15 @@ fun BuzApp() {
         } catch (e: Exception) { loadError = e.message ?: e::class.simpleName }
     }
 
-    val poles = remember(measurements.toList()) { measurements.map { it.toPole() } }
-
-    // Auto-create metas for any SL id present in data but missing from state.
-    LaunchedEffect(measurements.toList()) {
-        val usedIds = measurements.mapNotNull { it.traverseId }.toSet()
-        val existing = scanlineMetas.map { it.id }.toSet()
-        for (id in usedIds - existing) {
-            scanlineMetas.add(ScanlineMeta(id))
-        }
+    // Only measurements with a real orientation get plotted. Empty seed rows
+    // (dip=0, dipDir=0) still count as a pole at (0, 0) so we filter them out
+    // to avoid drawing a fake spike at N horizontal until the user types.
+    val plottedMeasurements = remember(measurements.toList()) {
+        measurements.filter { !(it.a == 0.0 && it.b == 0.0) }
     }
+    val poles = remember(plottedMeasurements) { plottedMeasurements.map { it.toPole() } }
 
-    val weights = remember(poles, applyTerzaghi, scanlineAxis, scanlineMetas.toList(), measurements.toList()) {
-        if (!applyTerzaghi || poles.isEmpty()) List(poles.size) { 1.0 }
-        else {
-            val defaultAxis = scanlineAxis
-            val axes = measurements.map { m ->
-                val meta = m.traverseId?.let { id -> scanlineMetas.firstOrNull { it.id == id } }
-                ScanlineAxis(meta?.axis() ?: defaultAxis)
-            }
-            Terzaghi.weights(poles, axes)
-        }
-    }
+    val weights = remember(poles) { List(poles.size) { 1.0 } }
     val fisher = remember(poles) { Fisher.analyse(poles) }
     val polesGrid = remember(poles, projection, polesSigmaDeg) {
         if (poles.size >= 3) Density.gaussian(poles, 81, projection, polesSigmaDeg) else null
@@ -184,22 +172,9 @@ fun BuzApp() {
     }
     val useFamilyPalette = autoOn
 
-    // Visible poles/colours after SL filter (used only in the Red tab display).
-    val visibleIdx = remember(measurements.toList(), hiddenSLs.toList()) {
-        measurements.mapIndexedNotNull { i, m ->
-            if (m.traverseId != null && m.traverseId in hiddenSLs) null else i
-        }
-    }
-    val visiblePoles = remember(poles, visibleIdx) { visibleIdx.map { poles[it] } }
-    val visibleColourIndex = remember(poleColourIndex, visibleIdx) {
-        IntArray(visibleIdx.size) { j -> poleColourIndex.getOrNull(visibleIdx[j]) ?: -1 }
-    }
-    val presentSLIds = remember(measurements.toList()) {
-        measurements.mapNotNull { it.traverseId }.toSortedSet().toList()
-    }
-    val roseBins = remember(measurements.toList(), weights) {
-        if (measurements.isEmpty()) return@remember emptyList()
-        val az = measurements.map { m ->
+    val roseBins = remember(plottedMeasurements, weights) {
+        if (plottedMeasurements.isEmpty()) return@remember emptyList()
+        val az = plottedMeasurements.map { m ->
             when (m.type) {
                 OrientationType.DIP_DIPDIR -> (m.b - 90.0 + 360.0) % 360.0
                 OrientationType.STRIKE_RHR_DIP, OrientationType.STRIKE_DIPQ -> m.a
@@ -212,8 +187,7 @@ fun BuzApp() {
 
     LaunchedEffect(
         lastUri, projection, polesDensity, showPlanes, showPoles, showGrid, showLabels,
-        wedgesDensity, applyTerzaghi, autoOn, autoK, coneAngleDeg,
-        scanlineTrend, scanlinePlunge, scanlineMetas.toList(), hiddenSLs.toList(),
+        wedgesDensity, autoOn, autoK, coneAngleDeg,
         polesSigmaDeg, wedgesKamb,
         familyMethod, peakMergeDeg,
         showFamilyRings, showFamilyPlanes,
@@ -224,10 +198,7 @@ fun BuzApp() {
             showPoles = showPoles, showGrid = showGrid, showLabels = showLabels,
             filledDensity = true, applyTerzaghi = false,
             autoOn = autoOn, autoK = autoK, coneAngleDeg = coneAngleDeg,
-            scanlineTrend = scanlineTrend, scanlinePlunge = scanlinePlunge,
             drawShape = WindowShape.RECT, windows = emptyList(),
-            scanlineMetas = scanlineMetas.toList(),
-            hiddenScanlineIds = hiddenSLs.toSet(),
             polesSigmaDeg = polesSigmaDeg,
             wedgesKamb = wedgesKamb,
             familyMethod = familyMethod,
@@ -248,8 +219,8 @@ fun BuzApp() {
                         contentPadding = PaddingValues(horizontal = 6.dp)) { Text("Abrir") }
                     TextButton(onClick = {
                         val exportPlot = StereonetPlot(
-                            poles = visiblePoles,
-                            planes = if (showPlanes) visiblePoles else emptyList(),
+                            poles = poles,
+                            planes = if (showPlanes) poles else emptyList(),
                             densityGrid = activeGrid,
                             projection = projection,
                             showGrid = showGrid,
@@ -257,7 +228,7 @@ fun BuzApp() {
                             showLabels = showLabels,
                             filledDensity = true,
                             windows = emptyList(),
-                            poleSetIndex = visibleColourIndex,
+                            poleSetIndex = poleColourIndex,
                             useFamilyPalette = useFamilyPalette,
                             clusterCentres = if (autoOn) families.map { it.centre } else emptyList(),
                             clusterAngleDeg = if (autoOn) coneAngleDeg else null,
@@ -267,7 +238,7 @@ fun BuzApp() {
                             familyBasins = densityDetection?.basins ?: IntArray(0),
                             familyBasinsGridSize = densityDetection?.gridSize ?: 0,
                             familyBasinCount = densityDetection?.families?.size ?: 0,
-                            scanlineAxis = if (applyTerzaghi) scanlineAxis else null,
+                            scanlineAxis = null,
                         )
                         exportPlotAsPng(context, density, exportPlot)
                     }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("PNG") }
@@ -282,8 +253,7 @@ fun BuzApp() {
                 NavigationBarItem(tab == 0, { tab = 0 }, icon = {}, label = { Text("Red") })
                 NavigationBarItem(tab == 1, { tab = 1 }, icon = {}, label = { Text("Datos") })
                 NavigationBarItem(tab == 2, { tab = 2 }, icon = {}, label = { Text("Estad.") })
-                NavigationBarItem(tab == 3, { tab = 3 }, icon = {}, label = { Text("Scanline") })
-                NavigationBarItem(tab == 4, { tab = 4 }, icon = {}, label = { Text("Familias") })
+                NavigationBarItem(tab == 3, { tab = 3 }, icon = {}, label = { Text("Familias") })
             }
         }
     ) { padding ->
@@ -307,15 +277,12 @@ fun BuzApp() {
                     showLabels = showLabels, onLabels = { showLabels = it },
                     polesSigmaDeg = polesSigmaDeg, onPolesSigma = { polesSigmaDeg = it },
                     wedgesKamb = wedgesKamb, onWedgesKamb = { wedgesKamb = it },
-                    poles = visiblePoles,
+                    poles = poles,
                     activeGrid = activeGrid,
-                    poleColourIndex = visibleColourIndex,
+                    poleColourIndex = poleColourIndex,
                     useFamilyPalette = useFamilyPalette,
                     clusterCentres = if (autoOn) families.map { it.centre } else emptyList(),
                     clusterAngleDeg = if (autoOn) coneAngleDeg else null,
-                    scanlineAxis = if (applyTerzaghi) scanlineAxis else null,
-                    presentSLIds = presentSLIds,
-                    hiddenSLs = hiddenSLs,
                     familiesActive = autoOn && families.isNotEmpty(),
                     showFamilyRings = showFamilyRings, onFamilyRings = { showFamilyRings = it },
                     showFamilyPlanes = showFamilyPlanes, onFamilyPlanes = { showFamilyPlanes = it },
@@ -333,7 +300,6 @@ fun BuzApp() {
                     EditableDataTable(
                         data = dataset,
                         measurements = measurements,
-                        familyAssignment = familyAssignment,
                         onSave = {
                             saveMsg = saveMeasurements(context, lastUri, measurements.toList())
                         },
@@ -341,19 +307,7 @@ fun BuzApp() {
                 }
                 2 -> RoseAndStats(roseBins, fisher, weights, applyTerzaghi,
                     families, familyFisher, familyPct)
-                3 -> ScanlineTab(
-                    scanlineMetas = scanlineMetas,
-                    measurements = measurements.toList(),
-                    poleColourIndex = poleColourIndex,
-                    onExportDipsOnly = {
-                        scanlineExportMsg = exportScanlineCsv(context, measurements.toList(), withDist = false)
-                    },
-                    onExportWithDist = {
-                        scanlineExportMsg = exportScanlineCsv(context, measurements.toList(), withDist = true)
-                    },
-                    exportMsg = scanlineExportMsg,
-                )
-                4 -> FamiliesTab(
+                3 -> FamiliesTab(
                     autoOn = autoOn, onAutoOn = { autoOn = it },
                     method = familyMethod, onMethod = { familyMethod = it },
                     k = autoK, onK = { autoK = it },
@@ -386,9 +340,6 @@ private fun RedTab(
     useFamilyPalette: Boolean,
     clusterCentres: List<Pole>,
     clusterAngleDeg: Double?,
-    scanlineAxis: Pole?,
-    presentSLIds: List<Int>,
-    hiddenSLs: androidx.compose.runtime.snapshots.SnapshotStateList<Int>,
     familiesActive: Boolean,
     showFamilyRings: Boolean, onFamilyRings: (Boolean) -> Unit,
     showFamilyPlanes: Boolean, onFamilyPlanes: (Boolean) -> Unit,
@@ -439,23 +390,6 @@ private fun RedTab(
                 )
             }
         }
-        // SL filter chips — only visible when there is more than one scanline.
-        if (presentSLIds.size >= 2) {
-            FlowRow(
-                modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Text("Filtro SL:", style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(top = 8.dp, end = 4.dp))
-                for (id in presentSLIds) {
-                    val visible = id !in hiddenSLs
-                    CompactChip(visible, {
-                        if (visible) hiddenSLs.add(id) else hiddenSLs.remove(id)
-                    }, "SL $id")
-                }
-            }
-        }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             StereonetView(
                 plot = StereonetPlot(
@@ -477,7 +411,7 @@ private fun RedTab(
                     familyBasins = familyBasins,
                     familyBasinsGridSize = familyBasinsGridSize,
                     familyBasinCount = familyBasinCount,
-                    scanlineAxis = scanlineAxis,
+                    scanlineAxis = null,
                 ),
                 modifier = Modifier.fillMaxSize(),
             )
@@ -561,12 +495,6 @@ private fun RoseAndStats(
                     Icon(Icons.Filled.Email, contentDescription = "Email", modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("andre.ramirez.@uni.pe", style = MaterialTheme.typography.bodySmall)
-                }
-                Spacer(Modifier.height(2.dp))
-                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Phone, contentDescription = "Teléfono", modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("+51 912103589", style = MaterialTheme.typography.bodySmall)
                 }
                 Spacer(Modifier.height(2.dp))
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -806,19 +734,6 @@ fun saveMeasurements(context: Context, lastUri: String?, ms: List<Measurement>):
     val ts = System.currentTimeMillis()
     val saved = PngExport.saveTextAsFile(context, text, "buz_edit_$ts.csv")
     return if (saved != null) "Guardado en Documents/Buz (nuevo archivo)."
-           else "No se pudo guardar el archivo."
-}
-
-/** Export CSV for the scanline. `withDist` controls whether the position
- *  along the scanline is included. Always writes to Documents/Buz. */
-private fun exportScanlineCsv(context: Context, ms: List<Measurement>, withDist: Boolean): String {
-    if (ms.isEmpty()) return "Sin datos para exportar."
-    val text = if (withDist) CsvExport.measurementsRoundtrip(ms)
-               else CsvExport.measurementsDipsOnly(ms)
-    val ts = System.currentTimeMillis()
-    val suffix = if (withDist) "dips_dist" else "dips"
-    val saved = PngExport.saveTextAsFile(context, text, "buz_scan_${suffix}_$ts.csv")
-    return if (saved != null) "Guardado en Documents/Buz/buz_scan_${suffix}_$ts.csv"
            else "No se pudo guardar el archivo."
 }
 

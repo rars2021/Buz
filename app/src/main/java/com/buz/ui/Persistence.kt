@@ -3,7 +3,6 @@ package com.buz.ui
 import android.content.Context
 import android.content.SharedPreferences
 import com.buz.core.ProjectionType
-import com.buz.core.ScanlineMeta
 import com.buz.core.SetWindow
 import com.buz.core.WindowShape
 
@@ -21,12 +20,8 @@ data class BuzState(
     val autoOn: Boolean = false,
     val autoK: Int = 3,
     val coneAngleDeg: Double = 20.0,
-    val scanlineTrend: Double = 0.0,
-    val scanlinePlunge: Double = 90.0,
     val drawShape: WindowShape = WindowShape.RECT,
     val windows: List<SetWindow> = emptyList(),
-    val scanlineMetas: List<ScanlineMeta> = emptyList(),
-    val hiddenScanlineIds: Set<Int> = emptySet(),
     val polesSigmaDeg: Double = 12.0,
     val wedgesKamb: Double = 2.0,
     val familyMethod: String = "KMEANS",     // "KMEANS" or "DENSITY"
@@ -60,13 +55,9 @@ object BuzPrefs {
                 autoOn = p.getBoolean("autoOn", false),
                 autoK = p.getInt("autoK", 3),
                 coneAngleDeg = p.getFloat("coneAngle", 20f).toDouble(),
-                scanlineTrend = p.getFloat("scanTrend", 0f).toDouble(),
-                scanlinePlunge = p.getFloat("scanPlunge", 90f).toDouble(),
                 drawShape = runCatching { WindowShape.valueOf(p.getString("drawShape", "RECT") ?: "RECT") }
                     .getOrDefault(WindowShape.RECT),
                 windows = decodeWindows(p.getString("windows", "") ?: ""),
-                scanlineMetas = decodeScanlineMetas(p.getString("scanlineMetas", "") ?: ""),
-                hiddenScanlineIds = decodeIntSet(p.getString("hiddenSLs", "") ?: ""),
                 polesSigmaDeg = p.getFloat("polesSigma", 12f).toDouble(),
                 wedgesKamb = p.getFloat("wedgesKamb", 2f).toDouble(),
                 familyMethod = p.getString("familyMethod", "KMEANS") ?: "KMEANS",
@@ -93,12 +84,8 @@ object BuzPrefs {
             putBoolean("autoOn", s.autoOn)
             putInt("autoK", s.autoK)
             putFloat("coneAngle", s.coneAngleDeg.toFloat())
-            putFloat("scanTrend", s.scanlineTrend.toFloat())
-            putFloat("scanPlunge", s.scanlinePlunge.toFloat())
             putString("drawShape", s.drawShape.name)
             putString("windows", encodeWindows(s.windows))
-            putString("scanlineMetas", encodeScanlineMetas(s.scanlineMetas))
-            putString("hiddenSLs", encodeIntSet(s.hiddenScanlineIds))
             putFloat("polesSigma", s.polesSigmaDeg.toFloat())
             putFloat("wedgesKamb", s.wedgesKamb.toFloat())
             putString("familyMethod", s.familyMethod)
@@ -110,33 +97,6 @@ object BuzPrefs {
             apply()
         }
     }
-
-    private fun encodeScanlineMetas(list: List<ScanlineMeta>): String =
-        list.joinToString(";") { m ->
-            val safeName = m.name.replace(";", ",").replace("|", "/")
-            listOf(m.id.toString(), safeName, m.trend.toString(), m.plunge.toString()).joinToString("|")
-        }
-
-    private fun decodeScanlineMetas(s: String): List<ScanlineMeta> {
-        if (s.isBlank()) return emptyList()
-        return s.split(";").mapNotNull { chunk ->
-            val f = chunk.split("|")
-            if (f.size < 4) return@mapNotNull null
-            runCatching {
-                ScanlineMeta(
-                    id = f[0].toInt(),
-                    name = f[1],
-                    trend = f[2].toDouble(),
-                    plunge = f[3].toDouble(),
-                )
-            }.getOrNull()
-        }
-    }
-
-    private fun encodeIntSet(set: Set<Int>): String = set.joinToString(",")
-    private fun decodeIntSet(s: String): Set<Int> =
-        if (s.isBlank()) emptySet()
-        else s.split(",").mapNotNull { it.toIntOrNull() }.toSet()
 
     private fun encodeWindows(ws: List<SetWindow>): String =
         ws.joinToString(";") { w ->

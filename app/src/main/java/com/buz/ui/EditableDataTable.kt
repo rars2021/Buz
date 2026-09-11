@@ -5,34 +5,38 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.buz.core.*
 
-/** Dense, spreadsheet-style editor for the measurements list. */
+/**
+ * Dense, spreadsheet-style editor for the measurements list.
+ * Single implicit scanline: no SL column, no per-row scanline picker.
+ * The table always renders — if there are no rows, the parent should pre-seed
+ * a few empties so the user can start typing right away.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditableDataTable(
     data: BuzDataset?,
     measurements: SnapshotStateList<Measurement>,
-    familyAssignment: IntArray,
     onSave: () -> Unit,
 ) {
-    if (data == null && measurements.isEmpty()) {
-        Text("Sin datos. Pulsa 'Abrir' (.dip / .csv / .tsv / .xlsx).")
-        return
-    }
     val orientationType = measurements.firstOrNull()?.type
         ?: data?.header?.orientationType ?: OrientationType.DIP_DIPDIR
     val (aName, bName) = when (orientationType) {
@@ -47,29 +51,36 @@ fun EditableDataTable(
     val nPages = ((measurements.size + pageSize - 1) / pageSize).coerceAtLeast(1)
     if (page >= nPages) page = nPages - 1
 
+    fun addRow() {
+        val nextId = (measurements.maxOfOrNull { it.rowId } ?: 0) + 1
+        measurements.add(Measurement(0.0, 0.0, 1.0, null, emptyList(), orientationType, nextId, null))
+    }
+
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = {
-                val nextId = (measurements.maxOfOrNull { it.rowId } ?: 0) + 1
-                measurements.add(Measurement(0.0, 0.0, 1.0, null, emptyList(), orientationType, nextId, null))
+                addRow()
                 page = (measurements.size - 1) / pageSize
             }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("+ Fila") }
+            TextButton(onClick = {
+                repeat(pageSize) { addRow() }
+                page = (measurements.size - 1) / pageSize
+            }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("+ Página") }
             TextButton(onClick = onSave,
                 contentPadding = PaddingValues(horizontal = 6.dp)) { Text("Guardar") }
             Spacer(Modifier.weight(1f))
             Text("n=${measurements.size}", style = MaterialTheme.typography.bodySmall)
         }
-        Text("${data?.sourceName ?: "editado"} · $orientationType", style = MaterialTheme.typography.labelSmall)
+        Text("${data?.sourceName ?: "editado"} · $orientationType",
+            style = MaterialTheme.typography.labelSmall)
         HorizontalDivider(Modifier.padding(vertical = 2.dp))
 
         Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-            HeaderCell("#", 0.5f)
-            HeaderCell("SL", 0.6f)
-            HeaderCell("Fam", 0.6f)
-            HeaderCell(aName, 1.0f)
-            HeaderCell(bName, 1.0f)
-            HeaderCell("Δm", 0.9f)
-            HeaderCell("dist m", 1.0f)
+            HeaderCell("#", 0.6f)
+            HeaderCell(aName, 1.2f)
+            HeaderCell(bName, 1.2f)
+            HeaderCell("Δm", 1.1f)
+            HeaderCell("dist m", 1.2f)
             HeaderCell("", 0.5f)
         }
         HorizontalDivider()
@@ -90,16 +101,11 @@ fun EditableDataTable(
                         prevAbs == null -> null
                         else -> m.distance - prevAbs
                     }
-                    val famIdx = familyAssignment.getOrElse(i) { -1 }
                     CompactRow(
                         m = m,
                         relDistance = relValue,
-                        familyIndex = famIdx,
                         onChangeA = { v -> replaceAt(measurements, i) { it.copy(a = v) } },
                         onChangeB = { v -> replaceAt(measurements, i) { it.copy(b = v) } },
-                        onChangeSL = { newSl ->
-                            replaceAt(measurements, i) { it.copy(traverseId = newSl) }
-                        },
                         onChangeRel = { newRel ->
                             replaceAt(measurements, i) { row ->
                                 val base = if (i == 0) 0.0
@@ -111,6 +117,8 @@ fun EditableDataTable(
                             replaceAt(measurements, i) { it.copy(distance = newAbs) }
                         },
                         onDelete = { if (i < measurements.size) measurements.removeAt(i) },
+                        isLastRow = (i == measurements.size - 1),
+                        onSubmitLast = { addRow() },
                     )
                     HorizontalDivider(color = Color(0x14000000))
                 }
@@ -148,31 +156,30 @@ private fun RowScope.HeaderCell(text: String, weight: Float) {
 private fun CompactRow(
     m: Measurement,
     relDistance: Double?,
-    familyIndex: Int,
     onChangeA: (Double) -> Unit,
     onChangeB: (Double) -> Unit,
-    onChangeSL: (Int?) -> Unit,
     onChangeRel: (Double?) -> Unit,
     onChangeAbs: (Double?) -> Unit,
     onDelete: () -> Unit,
+    isLastRow: Boolean,
+    onSubmitLast: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().height(32.dp).padding(vertical = 1.dp),
+        Modifier.fillMaxWidth().height(34.dp).padding(vertical = 1.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             "${m.rowId}",
-            modifier = Modifier.weight(0.5f).padding(horizontal = 2.dp),
+            modifier = Modifier.weight(0.6f).padding(horizontal = 2.dp),
             style = MaterialTheme.typography.labelSmall,
             textAlign = TextAlign.Center,
         )
-        CellIntOrNull(m.traverseId, 0.6f, tint = Color(0x1FB05E00), onValue = onChangeSL)
-        val famText = if (familyIndex >= 0) "F${familyIndex + 1}" else "SF"
-        Text(famText, modifier = Modifier.weight(0.6f), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
-        Cell(m.a, 1.0f, onChangeA)
-        Cell(m.b, 1.0f, onChangeB)
-        CellDoubleOrNull(relDistance, 0.9f, tint = Color(0x1F1F4EA8), onValue = onChangeRel)
-        CellDoubleOrNull(m.distance, 1.0f, tint = Color(0x1F1B7F3B), onValue = onChangeAbs)
+        NumCell(m.a, 1.2f, isLast = false, onSubmitLast = onSubmitLast, onValue = onChangeA)
+        NumCell(m.b, 1.2f, isLast = false, onSubmitLast = onSubmitLast, onValue = onChangeB)
+        NumCellNullable(relDistance, 1.1f, tint = Color(0x1F1F4EA8),
+            isLast = false, onSubmitLast = onSubmitLast, onValue = onChangeRel)
+        NumCellNullable(m.distance, 1.2f, tint = Color(0x1F1B7F3B),
+            isLast = isLastRow, onSubmitLast = onSubmitLast, onValue = onChangeAbs)
         TextButton(
             onClick = onDelete,
             modifier = Modifier.weight(0.5f),
@@ -181,28 +188,21 @@ private fun CompactRow(
     }
 }
 
+/**
+ * Numeric editable cell. Enter/Check advances focus to the next field.
+ * When it is the very last cell of the very last row, Enter appends a new
+ * row and moves focus into it — so typing straight through a table just
+ * keeps going without touching "+ Fila".
+ */
 @Composable
-private fun RowScope.CellIntOrNull(
-    value: Int?, weight: Float,
-    tint: Color = Color(0x14000000),
-    onValue: (Int?) -> Unit,
+private fun RowScope.NumCell(
+    value: Double,
+    weight: Float,
+    isLast: Boolean,
+    onSubmitLast: () -> Unit,
+    onValue: (Double) -> Unit,
 ) {
-    var text by remember(value) { mutableStateOf(value?.toString() ?: "") }
-    BasicTextField(
-        value = text,
-        onValueChange = {
-            text = it
-            onValue(if (it.isBlank()) null else it.toIntOrNull())
-        },
-        singleLine = true,
-        textStyle = cellStyle,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        modifier = Modifier.weight(weight).padding(horizontal = 2.dp).background(tint),
-    )
-}
-
-@Composable
-private fun RowScope.Cell(value: Double, weight: Float, onValue: (Double) -> Unit) {
+    val focusManager = LocalFocusManager.current
     var text by remember(value) { mutableStateOf(fmt(value)) }
     BasicTextField(
         value = text,
@@ -212,17 +212,31 @@ private fun RowScope.Cell(value: Double, weight: Float, onValue: (Double) -> Uni
         },
         singleLine = true,
         textStyle = cellStyle,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Number,
+            imeAction = if (isLast) ImeAction.Done else ImeAction.Next,
+        ),
+        keyboardActions = KeyboardActions(
+            onNext = { focusManager.moveFocus(FocusDirection.Next) },
+            onDone = {
+                onSubmitLast()
+                focusManager.moveFocus(FocusDirection.Next)
+            },
+        ),
         modifier = Modifier.weight(weight).padding(horizontal = 2.dp).background(Color(0x14000000)),
     )
 }
 
 @Composable
-private fun RowScope.CellDoubleOrNull(
-    value: Double?, weight: Float,
+private fun RowScope.NumCellNullable(
+    value: Double?,
+    weight: Float,
     tint: Color = Color(0x14000000),
+    isLast: Boolean,
+    onSubmitLast: () -> Unit,
     onValue: (Double?) -> Unit,
 ) {
+    val focusManager = LocalFocusManager.current
     var text by remember(value) { mutableStateOf(value?.let { fmt(it) } ?: "") }
     BasicTextField(
         value = text,
@@ -232,13 +246,23 @@ private fun RowScope.CellDoubleOrNull(
         },
         singleLine = true,
         textStyle = cellStyle,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Number,
+            imeAction = if (isLast) ImeAction.Done else ImeAction.Next,
+        ),
+        keyboardActions = KeyboardActions(
+            onNext = { focusManager.moveFocus(FocusDirection.Next) },
+            onDone = {
+                onSubmitLast()
+                focusManager.moveFocus(FocusDirection.Next)
+            },
+        ),
         modifier = Modifier.weight(weight).padding(horizontal = 2.dp).background(tint),
     )
 }
 
 private val cellStyle = TextStyle(
-    fontSize = 13.sp,
+    fontSize = 14.sp,
     fontFamily = FontFamily.Monospace,
     textAlign = TextAlign.Center,
 )

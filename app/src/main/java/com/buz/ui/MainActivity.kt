@@ -18,8 +18,10 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import android.content.res.Configuration
 import com.buz.core.*
 import java.io.InputStreamReader
 
@@ -354,13 +356,46 @@ private fun RedTab(
     totalPoles: Int,
 ) {
     val sigmaVisible = polesDensity || (autoOn && familyMethod == "DENSITY")
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-    ) {
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+    val plot = StereonetPlot(
+        poles = poles,
+        planes = if (showPlanes) poles else emptyList(),
+        densityGrid = activeGrid,
+        projection = projection,
+        showGrid = showGrid,
+        showPoles = showPoles,
+        showLabels = showLabels,
+        filledDensity = true,
+        windows = emptyList(),
+        poleSetIndex = poleColourIndex,
+        useFamilyPalette = useFamilyPalette,
+        clusterCentres = clusterCentres,
+        clusterAngleDeg = clusterAngleDeg,
+        showClusterRings = showFamilyRings,
+        familyMeanPlanes = familyMeanPlanes,
+        familyBasins = familyBasins,
+        familyBasinsGridSize = familyBasinsGridSize,
+        familyBasinCount = familyBasinCount,
+        scanlineAxis = null,
+    )
+
+    val densityLabel = when {
+        wedgesDensity -> "Q cuñas (intersecciones de planos, no zonas de deslizamiento)"
+        polesDensity -> "Q polos (densidad Kamb, calor sobre las orientaciones)"
+        else -> null
+    }
+    val famsLbl = if (clusterCentres.isNotEmpty()) "  |  Familias: ${clusterCentres.size}" else ""
+    val densLbl = if (densityLabel != null && activeGrid != null)
+        "  |  $densityLabel — pico ${"%.1f".format(activeGrid.maxSigma)} σ" else ""
+
+    // Shared building blocks. Same widgets, two layouts.
+    val chipsBlock: @Composable () -> Unit = {
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
+            maxItemsInEachRow = 4,
         ) {
             CompactChip(projection == ProjectionType.EQUAL_AREA, { onProjection(ProjectionType.EQUAL_AREA) }, "Equiar.")
             CompactChip(projection == ProjectionType.EQUAL_ANGLE, { onProjection(ProjectionType.EQUAL_ANGLE) }, "Equiang.")
@@ -371,7 +406,25 @@ private fun RedTab(
             CompactChip(showGrid, { onGrid(!showGrid) }, "Grid")
             CompactChip(showLabels, { onLabels(!showLabels) }, "Métricas")
         }
-        // Shared σ slider — the SAME σ drives Q polos AND picos de densidad.
+    }
+    val statusBlock: @Composable () -> Unit = {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 2.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+        ) {
+            Text("N=${poles.size}$famsLbl$densLbl",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f))
+            if (familiesActive) {
+                CompactChip(showFamilyRings, { onFamilyRings(!showFamilyRings) }, "Anillos")
+                Spacer(Modifier.width(4.dp))
+                CompactChip(showFamilyPlanes, { onFamilyPlanes(!showFamilyPlanes) }, "Planos F")
+            }
+        }
+    }
+    // Sliders live in ONE zone, together with the Familias controls, so the
+    // user doesn't have to scroll up-and-down to tweak parameters.
+    val slidersBlock: @Composable () -> Unit = {
         if (sigmaVisible) {
             Row(Modifier.fillMaxWidth().padding(top = 2.dp),
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -398,56 +451,8 @@ private fun RedTab(
                 )
             }
         }
-        Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
-            StereonetView(
-                plot = StereonetPlot(
-                    poles = poles,
-                    planes = if (showPlanes) poles else emptyList(),
-                    densityGrid = activeGrid,
-                    projection = projection,
-                    showGrid = showGrid,
-                    showPoles = showPoles,
-                    showLabels = showLabels,
-                    filledDensity = true,
-                    windows = emptyList(),
-                    poleSetIndex = poleColourIndex,
-                    useFamilyPalette = useFamilyPalette,
-                    clusterCentres = clusterCentres,
-                    clusterAngleDeg = clusterAngleDeg,
-                    showClusterRings = showFamilyRings,
-                    familyMeanPlanes = familyMeanPlanes,
-                    familyBasins = familyBasins,
-                    familyBasinsGridSize = familyBasinsGridSize,
-                    familyBasinCount = familyBasinCount,
-                    scanlineAxis = null,
-                ),
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
-        val densityLabel = when {
-            wedgesDensity -> "Q cuñas (intersecciones de planos, no zonas de deslizamiento)"
-            polesDensity -> "Q polos (densidad Kamb, calor sobre las orientaciones)"
-            else -> null
-        }
-        val fams = if (clusterCentres.isNotEmpty()) "  |  Familias: ${clusterCentres.size}" else ""
-        val dens = if (densityLabel != null && activeGrid != null)
-            "  |  $densityLabel — pico ${"%.1f".format(activeGrid.maxSigma)} σ" else ""
-        Row(
-            Modifier.fillMaxWidth().padding(top = 2.dp),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-        ) {
-            Text("N=${poles.size}$fams$dens",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.weight(1f))
-            if (familiesActive) {
-                CompactChip(showFamilyRings, { onFamilyRings(!showFamilyRings) }, "Anillos")
-                Spacer(Modifier.width(4.dp))
-                CompactChip(showFamilyPlanes, { onFamilyPlanes(!showFamilyPlanes) }, "Planos F")
-            }
-        }
-
-        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-
+    }
+    val familiesBlock: @Composable () -> Unit = {
         FamiliesSection(
             autoOn = autoOn, onAutoOn = onAutoOn,
             method = familyMethod, onMethod = onFamilyMethod,
@@ -457,7 +462,38 @@ private fun RedTab(
             families = families, percents = familyPct,
             fisherPerFamily = familyFisher, total = totalPoles,
         )
-        Spacer(Modifier.height(12.dp))
+    }
+
+    if (isLandscape) {
+        Row(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxHeight().aspectRatio(1f)) {
+                StereonetView(plot = plot, modifier = Modifier.fillMaxSize())
+            }
+            Column(
+                Modifier.weight(1f).fillMaxHeight()
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = 8.dp),
+            ) {
+                chipsBlock()
+                statusBlock()
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                slidersBlock()
+                familiesBlock()
+                Spacer(Modifier.height(12.dp))
+            }
+        }
+    } else {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            chipsBlock()
+            Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
+                StereonetView(plot = plot, modifier = Modifier.fillMaxSize())
+            }
+            statusBlock()
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            slidersBlock()
+            familiesBlock()
+            Spacer(Modifier.height(12.dp))
+        }
     }
 }
 
@@ -471,16 +507,9 @@ private fun RoseAndStats(
     fisherPerFamily: List<Fisher.Result?>,
     percents: List<Double>,
 ) {
-    Column(
-        Modifier.fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(4.dp),
-    ) {
-        Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
-            RoseView(roseBins, Modifier.fillMaxSize())
-        }
-        HorizontalDivider(Modifier.padding(vertical = 4.dp))
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
+    val textBlock: @Composable () -> Unit = {
         Text("Fisher global", style = MaterialTheme.typography.titleSmall)
         if (fisher == null) Text("Sin datos.", style = MaterialTheme.typography.bodySmall)
         else {
@@ -528,6 +557,31 @@ private fun RoseAndStats(
             Text("github.com/rars2021", style = MaterialTheme.typography.bodySmall)
         }
         Spacer(Modifier.height(12.dp))
+    }
+
+    if (isLandscape) {
+        Row(Modifier.fillMaxSize().padding(4.dp)) {
+            Box(Modifier.fillMaxHeight().aspectRatio(1f)) {
+                RoseView(roseBins, Modifier.fillMaxSize())
+            }
+            Column(
+                Modifier.weight(1f).fillMaxHeight()
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = 8.dp),
+            ) { textBlock() }
+        }
+    } else {
+        Column(
+            Modifier.fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(4.dp),
+        ) {
+            Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
+                RoseView(roseBins, Modifier.fillMaxSize())
+            }
+            HorizontalDivider(Modifier.padding(vertical = 4.dp))
+            textBlock()
+        }
     }
 }
 

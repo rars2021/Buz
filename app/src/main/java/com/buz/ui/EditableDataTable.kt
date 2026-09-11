@@ -1,5 +1,6 @@
 package com.buz.ui
 
+import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -29,6 +31,9 @@ import com.buz.core.*
  * Single implicit scanline: no SL column, no per-row scanline picker.
  * The table always renders — if there are no rows, the parent should pre-seed
  * a few empties so the user can start typing right away.
+ *
+ * In landscape mode two pages render side-by-side and navigation steps by
+ * two pages at a time, so the wider viewport is actually used.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,13 +56,22 @@ fun EditableDataTable(
     val nPages = ((measurements.size + pageSize - 1) / pageSize).coerceAtLeast(1)
     if (page >= nPages) page = nPages - 1
 
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    // In landscape we render two consecutive pages side-by-side, so nav
+    // effectively steps by 2 — the pair the user sees moves as a unit.
+    val step = if (isLandscape) 2 else 1
+
     fun addRow() {
         val nextId = (measurements.maxOfOrNull { it.rowId } ?: 0) + 1
         measurements.add(Measurement(0.0, 0.0, 1.0, null, emptyList(), orientationType, nextId, null))
     }
 
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        // One compact strip on top — buttons + source/format/count on the right.
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             TextButton(onClick = {
                 addRow()
                 page = (measurements.size - 1) / pageSize
@@ -69,13 +83,81 @@ fun EditableDataTable(
             TextButton(onClick = onSave,
                 contentPadding = PaddingValues(horizontal = 6.dp)) { Text("Guardar") }
             Spacer(Modifier.weight(1f))
-            Text("n=${measurements.size}", style = MaterialTheme.typography.bodySmall)
+            Text(
+                "${data?.sourceName ?: "editado"} · $orientationType · n=${measurements.size}",
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(end = 6.dp),
+            )
         }
-        Text("${data?.sourceName ?: "editado"} · $orientationType",
-            style = MaterialTheme.typography.labelSmall)
-        HorizontalDivider(Modifier.padding(vertical = 2.dp))
+        HorizontalDivider()
 
-        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        if (isLandscape) {
+            Row(Modifier.weight(1f).fillMaxWidth()) {
+                PageTable(
+                    measurements, page, pageSize, aName, bName,
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    onAddRow = ::addRow,
+                )
+                VerticalDivider()
+                PageTable(
+                    measurements, page + 1, pageSize, aName, bName,
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    onAddRow = ::addRow,
+                )
+            }
+        } else {
+            PageTable(
+                measurements, page, pageSize, aName, bName,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                onAddRow = ::addRow,
+            )
+        }
+
+        if (nPages > 1) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(
+                    onClick = { page = (page - step).coerceAtLeast(0) },
+                    enabled = page > 0,
+                    contentPadding = PaddingValues(horizontal = 6.dp),
+                ) { Text("‹") }
+                val pageLabel = if (isLandscape && page + 1 < nPages)
+                    "Pág. ${page + 1}-${page + 2}/$nPages"
+                else "Pág. ${page + 1}/$nPages"
+                Text(
+                    pageLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f), textAlign = TextAlign.Center,
+                )
+                TextButton(
+                    onClick = { page = (page + step).coerceAtMost(nPages - 1) },
+                    enabled = page < nPages - 1,
+                    contentPadding = PaddingValues(horizontal = 6.dp),
+                ) { Text("›") }
+            }
+        }
+    }
+}
+
+/**
+ * One page of the table (header row + up to `pageSize` measurement rows).
+ * Extracted so landscape can render two of these side-by-side.
+ */
+@Composable
+private fun PageTable(
+    measurements: SnapshotStateList<Measurement>,
+    page: Int,
+    pageSize: Int,
+    aName: String,
+    bName: String,
+    modifier: Modifier = Modifier,
+    onAddRow: () -> Unit,
+) {
+    val fromIdx = page * pageSize
+    val toIdx = ((page + 1) * pageSize).coerceAtMost(measurements.size)
+    val rowsInPage = (toIdx - fromIdx).coerceAtLeast(0)
+
+    Column(modifier) {
+        Row(Modifier.fillMaxWidth()) {
             HeaderCell("#", 0.6f)
             HeaderCell(aName, 1.2f)
             HeaderCell(bName, 1.2f)
@@ -85,9 +167,10 @@ fun EditableDataTable(
         }
         HorizontalDivider()
 
-        val fromIdx = page * pageSize
-        val toIdx = ((page + 1) * pageSize).coerceAtMost(measurements.size)
-        val rowsInPage = (toIdx - fromIdx).coerceAtLeast(0)
+        if (rowsInPage == 0) {
+            Box(Modifier.fillMaxWidth().weight(1f)) {}
+            return@Column
+        }
 
         LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
             items(rowsInPage) { offset ->
@@ -118,21 +201,10 @@ fun EditableDataTable(
                         },
                         onDelete = { if (i < measurements.size) measurements.removeAt(i) },
                         isLastRow = (i == measurements.size - 1),
-                        onSubmitLast = { addRow() },
+                        onSubmitLast = { onAddRow() },
                     )
                     HorizontalDivider(color = Color(0x14000000))
                 }
-            }
-        }
-
-        if (nPages > 1) {
-            Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { if (page > 0) page-- }, enabled = page > 0,
-                    contentPadding = PaddingValues(horizontal = 6.dp)) { Text("‹") }
-                Text("Pag. ${page + 1}/$nPages", style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
-                TextButton(onClick = { if (page < nPages - 1) page++ }, enabled = page < nPages - 1,
-                    contentPadding = PaddingValues(horizontal = 6.dp)) { Text("›") }
             }
         }
     }

@@ -256,7 +256,7 @@ fun BuzApp() {
             }
         }
     ) { padding ->
-        Column(Modifier.padding(padding).padding(6.dp)) {
+        Column(Modifier.padding(padding).padding(horizontal = 6.dp, vertical = 2.dp)) {
             loadError?.let {
                 Card { Text("Error al leer: $it", Modifier.padding(8.dp)) }
                 Spacer(Modifier.height(4.dp))

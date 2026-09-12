@@ -30,6 +30,8 @@ data class BuzState(
     val peakMergeDeg: Double = 15.0,
     val showFamilyRings: Boolean = true,
     val showFamilyPlanes: Boolean = false,
+    val scanlineTrendDeg: Double = 0.0,
+    val scanlinePlungeDeg: Double = 0.0,
 )
 
 object BuzPrefs {
@@ -66,6 +68,8 @@ object BuzPrefs {
                 peakMergeDeg = p.getFloat("peakMergeDeg", 15f).toDouble(),
                 showFamilyRings = p.getBoolean("showFamilyRings", true),
                 showFamilyPlanes = p.getBoolean("showFamilyPlanes", false),
+                scanlineTrendDeg = p.getFloat("scanlineTrend", 0f).toDouble(),
+                scanlinePlungeDeg = p.getFloat("scanlinePlunge", 0f).toDouble(),
             )
         }.getOrDefault(BuzState())
     }
@@ -94,6 +98,8 @@ object BuzPrefs {
             putFloat("peakMergeDeg", s.peakMergeDeg.toFloat())
             putBoolean("showFamilyRings", s.showFamilyRings)
             putBoolean("showFamilyPlanes", s.showFamilyPlanes)
+            putFloat("scanlineTrend", s.scanlineTrendDeg.toFloat())
+            putFloat("scanlinePlunge", s.scanlinePlungeDeg.toFloat())
             apply()
         }
     }

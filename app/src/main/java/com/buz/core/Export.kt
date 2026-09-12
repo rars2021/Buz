@@ -4,10 +4,14 @@ package com.buz.core
  * Serialisation helpers. Kept in pure Kotlin so tests do not need Android.
  */
 object CsvExport {
+    /** Rows with NaN a/b are unset seed rows: never written out. */
+    private fun List<Measurement>.finiteOnly(): List<Measurement> =
+        filter { it.a.isFinite() && it.b.isFinite() }
+
     /** All measurements as CSV — good for round-tripping a `.DIP` to spreadsheet. */
     fun measurements(ms: List<Measurement>): String {
         val sb = StringBuilder("row,a,b,quantity,traverse,dist,type\n")
-        for (m in ms) {
+        for (m in ms.finiteOnly()) {
             sb.append(
                 "%d,%.4f,%.4f,%.4f,%s,%s,%s\n".format(
                     m.rowId,
@@ -24,8 +28,9 @@ object CsvExport {
     /** Dips-only variant: no `row`, no `dist`. Useful when spacing along the
      *  scanline is not needed. */
     fun measurementsDipsOnly(ms: List<Measurement>): String {
-        if (ms.isEmpty()) return "a,b,quantity,traverse\n"
-        val t = ms.first().type
+        val filtered = ms.finiteOnly()
+        if (filtered.isEmpty()) return "a,b,quantity,traverse\n"
+        val t = filtered.first().type
         val (aName, bName) = when (t) {
             OrientationType.DIP_DIPDIR -> "dip" to "dipdir"
             OrientationType.STRIKE_RHR_DIP, OrientationType.STRIKE_DIPQ -> "strike" to "dip"
@@ -33,7 +38,7 @@ object CsvExport {
             OrientationType.PLUNGE_TREND -> "plunge" to "trend"
         }
         val sb = StringBuilder("$aName,$bName,quantity,traverse\n")
-        for (m in ms) {
+        for (m in filtered) {
             sb.append(
                 "%.4f,%.4f,%.4f,%s\n".format(
                     m.a, m.b, m.quantity,
@@ -48,8 +53,9 @@ object CsvExport {
      *  Column names use the orientation type of the first measurement so
      *  reopening the file selects the same interpretation. */
     fun measurementsRoundtrip(ms: List<Measurement>): String {
-        if (ms.isEmpty()) return "row,a,b,quantity,traverse,dist\n"
-        val t = ms.first().type
+        val filtered = ms.finiteOnly()
+        if (filtered.isEmpty()) return "row,a,b,quantity,traverse,dist\n"
+        val t = filtered.first().type
         val (aName, bName) = when (t) {
             OrientationType.DIP_DIPDIR -> "dip" to "dipdir"
             OrientationType.STRIKE_RHR_DIP, OrientationType.STRIKE_DIPQ -> "strike" to "dip"
@@ -57,7 +63,7 @@ object CsvExport {
             OrientationType.PLUNGE_TREND -> "plunge" to "trend"
         }
         val sb = StringBuilder("row,$aName,$bName,quantity,traverse,dist\n")
-        for (m in ms) {
+        for (m in filtered) {
             sb.append(
                 "%d,%.4f,%.4f,%.4f,%s,%s\n".format(
                     m.rowId,

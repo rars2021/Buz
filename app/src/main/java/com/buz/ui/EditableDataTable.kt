@@ -15,6 +15,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
@@ -29,11 +34,15 @@ import com.buz.core.*
 /**
  * Dense, spreadsheet-style editor for the measurements list.
  * Single implicit scanline: no SL column, no per-row scanline picker.
- * The table always renders — if there are no rows, the parent should pre-seed
- * a few empties so the user can start typing right away.
+ * Empty seed rows use `NaN` for dip/ddir so the cells render blank —
+ * typing "2" produces 2, not "02" (=20).
  *
- * In landscape mode two pages render side-by-side and navigation steps by
- * two pages at a time, so the wider viewport is actually used.
+ * Physical keyboard: arrow keys jump between cells; Tab/Enter advances
+ * to the next field; on the very last cell of the last row, Enter/Done
+ * appends a new row and moves focus into it.
+ *
+ * In landscape mode two pages render side-by-side and navigation steps
+ * by two pages at a time.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,17 +66,17 @@ fun EditableDataTable(
     if (page >= nPages) page = nPages - 1
 
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-    // In landscape we render two consecutive pages side-by-side, so nav
-    // effectively steps by 2 — the pair the user sees moves as a unit.
     val step = if (isLandscape) 2 else 1
 
     fun addRow() {
         val nextId = (measurements.maxOfOrNull { it.rowId } ?: 0) + 1
-        measurements.add(Measurement(0.0, 0.0, 1.0, null, emptyList(), orientationType, nextId, null))
+        measurements.add(
+            Measurement(Double.NaN, Double.NaN, 1.0, null, emptyList(),
+                orientationType, nextId, null)
+        )
     }
 
     Column(Modifier.fillMaxSize()) {
-        // One compact strip on top — buttons + source/format/count on the right.
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -138,10 +147,6 @@ fun EditableDataTable(
     }
 }
 
-/**
- * One page of the table (header row + up to `pageSize` measurement rows).
- * Extracted so landscape can render two of these side-by-side.
- */
 @Composable
 private fun PageTable(
     measurements: SnapshotStateList<Measurement>,
@@ -261,10 +266,10 @@ private fun CompactRow(
 }
 
 /**
- * Numeric editable cell. Enter/Check advances focus to the next field.
- * When it is the very last cell of the very last row, Enter appends a new
- * row and moves focus into it — so typing straight through a table just
- * keeps going without touching "+ Fila".
+ * Numeric editable cell. NaN means "unset" and renders as an empty field.
+ * Enter/Check advances focus to the next field; arrow keys jump between
+ * cells (physical keyboard). Backspacing all text clears the value back
+ * to NaN, so an unset cell doesn't leak "0" back into the plot.
  */
 @Composable
 private fun RowScope.NumCell(
@@ -275,12 +280,20 @@ private fun RowScope.NumCell(
     onValue: (Double) -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
-    var text by remember(value) { mutableStateOf(fmt(value)) }
+    // A stable remember key: any concrete Double, or the string "nan" while
+    // the value is unset. Compose treats NaN != NaN, so passing NaN directly
+    // would recreate the state on every recomposition.
+    val key: Any = if (value.isNaN()) "nan" else value
+    var text by remember(key) { mutableStateOf(if (value.isNaN()) "" else fmt(value)) }
     BasicTextField(
         value = text,
         onValueChange = {
             text = it
-            it.replace(',', '.').toDoubleOrNull()?.let(onValue)
+            val parsed = it.replace(',', '.').toDoubleOrNull()
+            when {
+                parsed != null -> onValue(parsed)
+                it.isBlank() -> onValue(Double.NaN)
+            }
         },
         singleLine = true,
         textStyle = cellStyle,
@@ -295,7 +308,11 @@ private fun RowScope.NumCell(
                 focusManager.moveFocus(FocusDirection.Next)
             },
         ),
-        modifier = Modifier.weight(weight).padding(horizontal = 2.dp).background(Color(0x14000000)),
+        modifier = Modifier
+            .weight(weight)
+            .padding(horizontal = 2.dp)
+            .background(Color(0x14000000))
+            .onPreviewKeyEvent { ev -> handleArrowNav(ev, focusManager) },
     )
 }
 
@@ -309,7 +326,8 @@ private fun RowScope.NumCellNullable(
     onValue: (Double?) -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
-    var text by remember(value) { mutableStateOf(value?.let { fmt(it) } ?: "") }
+    val key: Any = value ?: "null"
+    var text by remember(key) { mutableStateOf(value?.let { fmt(it) } ?: "") }
     BasicTextField(
         value = text,
         onValueChange = {
@@ -329,8 +347,28 @@ private fun RowScope.NumCellNullable(
                 focusManager.moveFocus(FocusDirection.Next)
             },
         ),
-        modifier = Modifier.weight(weight).padding(horizontal = 2.dp).background(tint),
+        modifier = Modifier
+            .weight(weight)
+            .padding(horizontal = 2.dp)
+            .background(tint)
+            .onPreviewKeyEvent { ev -> handleArrowNav(ev, focusManager) },
     )
+}
+
+/** Physical-keyboard arrow-key navigation between spreadsheet cells. */
+private fun handleArrowNav(
+    ev: androidx.compose.ui.input.key.KeyEvent,
+    focusManager: androidx.compose.ui.focus.FocusManager,
+): Boolean {
+    if (ev.type != KeyEventType.KeyDown) return false
+    return when (ev.key) {
+        Key.DirectionRight -> { focusManager.moveFocus(FocusDirection.Right); true }
+        Key.DirectionLeft -> { focusManager.moveFocus(FocusDirection.Left); true }
+        Key.DirectionUp -> { focusManager.moveFocus(FocusDirection.Up); true }
+        Key.DirectionDown -> { focusManager.moveFocus(FocusDirection.Down); true }
+        Key.Tab -> { focusManager.moveFocus(FocusDirection.Next); true }
+        else -> false
+    }
 }
 
 private val cellStyle = TextStyle(

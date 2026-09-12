@@ -92,9 +92,11 @@ fun BuzApp() {
             } catch (_: Exception) { }
         }
         if (measurements.isEmpty()) {
+            // Seed with NaN so the cells start visually empty. Typing "2"
+            // yields 2, not "02" (=20) as it did when the seed was 0.
             repeat(5) { i ->
                 measurements.add(
-                    Measurement(0.0, 0.0, 1.0, null, emptyList(),
+                    Measurement(Double.NaN, Double.NaN, 1.0, null, emptyList(),
                         OrientationType.DIP_DIPDIR, rowId = i + 1, distance = null)
                 )
             }
@@ -125,7 +127,9 @@ fun BuzApp() {
     // (dip=0, dipDir=0) still count as a pole at (0, 0) so we filter them out
     // to avoid drawing a fake spike at N horizontal until the user types.
     val plottedMeasurements = remember(measurements.toList()) {
-        measurements.filter { !(it.a == 0.0 && it.b == 0.0) }
+        // Skip NaN seed rows and the (0,0) placeholder value so an untouched
+        // row doesn't render as a fake N-horizontal pole.
+        measurements.filter { it.a.isFinite() && it.b.isFinite() && !(it.a == 0.0 && it.b == 0.0) }
     }
     val poles = remember(plottedMeasurements) { plottedMeasurements.map { it.toPole() } }
 

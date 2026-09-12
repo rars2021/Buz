@@ -1,7 +1,9 @@
 package com.buz.ui
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -12,6 +14,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import com.buz.core.Measurement
 import kotlin.math.*
 
@@ -20,9 +23,12 @@ import kotlin.math.*
  *
  * Each measurement with a non-null distance becomes a small disk oriented by
  * its pole (dip / dip direction), placed along the scanline at its distance
- * from the origin. Drag rotates the camera (yaw + pitch); orthographic
- * projection, painter's algorithm for depth. No external 3D library — this
- * is one Compose Canvas.
+ * from the origin. Camera is orthographic with painter's-algorithm depth.
+ *
+ * Gestures
+ *   • 1 finger drag  → pan  (translate camera parallel to view plane)
+ *   • 2 finger pinch → zoom (0.5×–4×, defaults to 2×)
+ *   • 2 finger drag  → orbit (yaw + pitch)
  *
  * Coordinate system: x = East, y = North, z = Up. Trend is azimuth from
  * North (clockwise), plunge is angle below horizontal.
@@ -36,16 +42,44 @@ fun ScanlineView3D(
 ) {
     var yaw by remember { mutableStateOf(0.6) }
     var pitch by remember { mutableStateOf(-0.35) }
+    var zoomLevel by remember { mutableStateOf(2f) }
+    var panX by remember { mutableStateOf(0f) }
+    var panY by remember { mutableStateOf(0f) }
 
     Canvas(
         modifier.fillMaxSize().pointerInput(Unit) {
-            detectDragGestures { _, drag ->
-                yaw += drag.x * 0.01
-                pitch = (pitch - drag.y * 0.01).coerceIn(-PI / 2 + 0.05, PI / 2 - 0.05)
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                do {
+                    val event = awaitPointerEvent()
+                    val activePointers = event.changes.count { it.pressed }
+                    val panChange = event.calculatePan()
+                    val zoomChange = event.calculateZoom()
+                    when {
+                        activePointers >= 2 -> {
+                            if (zoomChange != 1f) {
+                                zoomLevel = (zoomLevel * zoomChange).coerceIn(0.5f, 4f)
+                            }
+                            // With both fingers down, translational motion of the
+                            // centroid rotates the camera; pinch handles zoom
+                            // independently of that motion.
+                            yaw += panChange.x * 0.01
+                            pitch = (pitch - panChange.y * 0.01).coerceIn(-PI / 2 + 0.05, PI / 2 - 0.05)
+                            event.changes.forEach { if (it.positionChanged()) it.consume() }
+                        }
+                        activePointers == 1 -> {
+                            // Single-finger drag pans the view without changing angle.
+                            panX += panChange.x
+                            panY += panChange.y
+                            event.changes.forEach { if (it.positionChanged()) it.consume() }
+                        }
+                    }
+                } while (event.changes.any { it.pressed })
             }
         }
     ) {
-        drawStereoScene(measurements, scanlineTrendDeg, scanlinePlungeDeg, yaw, pitch)
+        drawStereoScene(measurements, scanlineTrendDeg, scanlinePlungeDeg,
+            yaw, pitch, zoomLevel, panX, panY)
     }
 }
 
@@ -55,15 +89,15 @@ private fun DrawScope.drawStereoScene(
     scanlinePlungeDeg: Double,
     yaw: Double,
     pitch: Double,
+    zoomLevel: Float,
+    panX: Float,
+    panY: Float,
 ) {
     val w = size.width; val h = size.height
     drawRect(Color(0xFFFAFAFA), topLeft = Offset(0f, 0f), size = size)
 
     val scanlineDir = trendPlungeToXYZ(scanlineTrendDeg, scanlinePlungeDeg)
 
-    // Positions of each measured discontinuity along the scanline. NaN
-    // orientation values (blank seed rows) are dropped so we don't try to
-    // draw a disk with NaN coordinates.
     val hits = measurements.mapNotNull { m ->
         val d = m.distance ?: return@mapNotNull null
         if (!m.a.isFinite() || !m.b.isFinite()) return@mapNotNull null
@@ -76,8 +110,10 @@ private fun DrawScope.drawStereoScene(
     val maxDist = hits.maxOfOrNull { abs(it.distanceAlong) } ?: 5.0
     val extent = (maxDist * 2.0).coerceAtLeast(3.0)
     val screenSize = min(w, h)
-    val scale = (screenSize / extent).toFloat() * 0.75f
-    val cx = w / 2f; val cy = h / 2f
+    val baseScale = (screenSize / extent).toFloat() * 0.75f
+    val scale = baseScale * zoomLevel
+    val cx = w / 2f + panX
+    val cy = h / 2f + panY
     val discRadius = extent * 0.06
 
     val cyaw = cos(yaw); val syaw = sin(yaw)
@@ -108,7 +144,7 @@ private fun DrawScope.drawStereoScene(
         drawLine(gridCol, toScreen(v, -gridSpan, 0.0), toScreen(v, gridSpan, 0.0), strokeWidth = 1f)
     }
 
-    // 2. Axes E (red), N (green), Up (blue) with labels
+    // 2. Axes E (red), N (green), Up (blue)
     val axLen = gridSpan * 0.6
     drawLine(Color(0xFFB22222), toScreen(0.0, 0.0, 0.0), toScreen(axLen, 0.0, 0.0), strokeWidth = 2.5f)
     drawLine(Color(0xFF1B7F3B), toScreen(0.0, 0.0, 0.0), toScreen(0.0, axLen, 0.0), strokeWidth = 2.5f)
@@ -128,7 +164,7 @@ private fun DrawScope.drawStereoScene(
     canvas.drawText("N", nLab.x, nLab.y, paint)
     canvas.drawText("Z", zLab.x, zLab.y, paint)
 
-    // 3. Scanline itself, red, extending a bit past both ends
+    // 3. Scanline
     val slFwd = (hits.maxOfOrNull { it.distanceAlong } ?: (extent * 0.35)).coerceAtLeast(extent * 0.15)
     val slBack = -slFwd * 0.15
     val slA = Triple(scanlineDir.first * slBack, scanlineDir.second * slBack, scanlineDir.third * slBack)
@@ -138,7 +174,7 @@ private fun DrawScope.drawStereoScene(
         toScreen(slB.first, slB.second, slB.third),
         strokeWidth = 3.5f)
 
-    // 4. Each discontinuity as a polygon disk, painter's algorithm (far → near)
+    // 4. Discontinuity discs, painter's algorithm (far → near)
     val samples = 28
     val sorted = hits.sortedByDescending { depth(it.pos.first, it.pos.second, it.pos.third) }
     for (hit in sorted) {
@@ -157,10 +193,18 @@ private fun DrawScope.drawStereoScene(
         }
         drawPath(path, Color(0x333366CC))
         drawPath(path, Color(0xFF1F3A6E), style = Stroke(1.5f))
-        // Intersection point marker (green)
         val c = toScreen(hit.pos.first, hit.pos.second, hit.pos.third)
         drawCircle(Color(0xFF1B7F3B), radius = 3.5f, center = c)
     }
+
+    // Zoom badge, top-right
+    val zoomPaint = android.graphics.Paint().apply {
+        color = android.graphics.Color.argb(160, 40, 40, 40)
+        textSize = 24f
+        isAntiAlias = true
+        textAlign = android.graphics.Paint.Align.RIGHT
+    }
+    canvas.drawText("${(zoomLevel * 100).toInt()}%", w - 8f, 22f, zoomPaint)
 }
 
 private data class Hit(
@@ -169,7 +213,6 @@ private data class Hit(
     val distanceAlong: Double,
 )
 
-/** Trend/plunge (degrees) → unit vector in E–N–Up (z up) space. */
 private fun trendPlungeToXYZ(trendDeg: Double, plungeDeg: Double): Triple<Double, Double, Double> {
     val t = Math.toRadians(trendDeg); val p = Math.toRadians(plungeDeg)
     val h = cos(p)
@@ -188,7 +231,6 @@ private fun norm(a: Triple<Double, Double, Double>): Triple<Double, Double, Doub
     return if (n < 1e-9) a else Triple(a.first / n, a.second / n, a.third / n)
 }
 
-/** Two unit vectors u, v spanning the plane whose normal is `n`. */
 private fun perpBasis(
     n: Triple<Double, Double, Double>,
 ): Pair<Triple<Double, Double, Double>, Triple<Double, Double, Double>> {

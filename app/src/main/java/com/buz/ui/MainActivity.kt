@@ -563,7 +563,9 @@ private fun RoseAndStats(
         Spacer(Modifier.height(12.dp))
         HorizontalDivider(Modifier.padding(vertical = 6.dp))
         Text("Scanline 3D", style = MaterialTheme.typography.titleSmall)
-        Text("Arrastra sobre la vista para rotar. Rojo = scanline, azul = discontinuidades.",
+        Text("1 dedo: mover · 2 dedos: rotar · pellizcar: zoom (0.5×–4×, base 2×).",
+            style = MaterialTheme.typography.labelSmall)
+        Text("Rojo = scanline, azul = discontinuidades.",
             style = MaterialTheme.typography.labelSmall)
         Row(
             Modifier.fillMaxWidth().padding(top = 4.dp),

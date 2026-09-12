@@ -70,6 +70,8 @@ fun BuzApp() {
     var peakMergeDeg by remember { mutableStateOf(initial.peakMergeDeg) }
     var showFamilyRings by remember { mutableStateOf(initial.showFamilyRings) }
     var showFamilyPlanes by remember { mutableStateOf(initial.showFamilyPlanes) }
+    var scanlineTrendDeg by remember { mutableStateOf(initial.scanlineTrendDeg) }
+    var scanlinePlungeDeg by remember { mutableStateOf(initial.scanlinePlungeDeg) }
     val measurements = remember { mutableStateListOf<Measurement>() }
 
     var tab by remember { mutableIntStateOf(0) }
@@ -191,6 +193,7 @@ fun BuzApp() {
         polesSigmaDeg, wedgesKamb,
         familyMethod, peakMergeDeg,
         showFamilyRings, showFamilyPlanes,
+        scanlineTrendDeg, scanlinePlungeDeg,
     ) {
         BuzPrefs.save(context, BuzState(
             lastUri = lastUri, projection = projection,
@@ -207,6 +210,8 @@ fun BuzApp() {
             peakMergeDeg = peakMergeDeg,
             showFamilyRings = showFamilyRings,
             showFamilyPlanes = showFamilyPlanes,
+            scanlineTrendDeg = scanlineTrendDeg,
+            scanlinePlungeDeg = scanlinePlungeDeg,
         ))
     }
 
@@ -314,7 +319,13 @@ fun BuzApp() {
                     )
                 }
                 2 -> RoseAndStats(roseBins, fisher, weights, applyTerzaghi,
-                    families, familyFisher, familyPct)
+                    families, familyFisher, familyPct,
+                    measurements = measurements,
+                    scanlineTrendDeg = scanlineTrendDeg,
+                    scanlinePlungeDeg = scanlinePlungeDeg,
+                    onScanlineTrend = { scanlineTrendDeg = it },
+                    onScanlinePlunge = { scanlinePlungeDeg = it },
+                )
             }
         }
     }
@@ -506,6 +517,11 @@ private fun RoseAndStats(
     families: List<AutoFamilies.Family>,
     fisherPerFamily: List<Fisher.Result?>,
     percents: List<Double>,
+    measurements: List<Measurement>,
+    scanlineTrendDeg: Double,
+    scanlinePlungeDeg: Double,
+    onScanlineTrend: (Double) -> Unit,
+    onScanlinePlunge: (Double) -> Unit,
 ) {
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
@@ -540,7 +556,37 @@ private fun RoseAndStats(
             }
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(12.dp))
+        HorizontalDivider(Modifier.padding(vertical = 6.dp))
+        Text("Scanline 3D", style = MaterialTheme.typography.titleSmall)
+        Text("Arrastra sobre la vista para rotar. Rojo = scanline, azul = discontinuidades.",
+            style = MaterialTheme.typography.labelSmall)
+        Row(
+            Modifier.fillMaxWidth().padding(top = 4.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
+            DegreeField("Rumbo °", scanlineTrendDeg, onScanlineTrend, Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
+            DegreeField("Buz. °", scanlinePlungeDeg, onScanlinePlunge, Modifier.weight(1f))
+        }
+        Box(
+            Modifier.fillMaxWidth()
+                .padding(top = 6.dp)
+                .height(320.dp),
+        ) {
+            ScanlineView3D(
+                measurements = measurements,
+                scanlineTrendDeg = scanlineTrendDeg,
+                scanlinePlungeDeg = scanlinePlungeDeg,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        val withDist = measurements.count { it.distance != null }
+        Text("Discontinuidades con dist=$withDist / ${measurements.size}",
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(top = 2.dp))
+
+        Spacer(Modifier.height(20.dp))
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         Text("Desarrollado por R. Sagastegui",
             style = MaterialTheme.typography.titleSmall)
@@ -592,6 +638,31 @@ private fun CompactChip(selected: Boolean, onClick: () -> Unit, label: String) {
         selected = selected,
         onClick = onClick,
         label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DegreeField(
+    label: String,
+    value: Double,
+    onChange: (Double) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var text by remember(value) { mutableStateOf(if (value == value.toLong().toDouble()) value.toLong().toString() else "%.1f".format(value)) }
+    OutlinedTextField(
+        value = text,
+        onValueChange = {
+            text = it
+            it.replace(',', '.').toDoubleOrNull()?.let(onChange)
+        },
+        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+        singleLine = true,
+        modifier = modifier,
+        textStyle = MaterialTheme.typography.bodySmall,
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+        ),
     )
 }
 

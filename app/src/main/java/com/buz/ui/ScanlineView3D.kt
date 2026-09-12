@@ -61,9 +61,12 @@ private fun DrawScope.drawStereoScene(
 
     val scanlineDir = trendPlungeToXYZ(scanlineTrendDeg, scanlinePlungeDeg)
 
-    // Positions of each measured discontinuity along the scanline.
+    // Positions of each measured discontinuity along the scanline. NaN
+    // orientation values (blank seed rows) are dropped so we don't try to
+    // draw a disk with NaN coordinates.
     val hits = measurements.mapNotNull { m ->
         val d = m.distance ?: return@mapNotNull null
+        if (!m.a.isFinite() || !m.b.isFinite()) return@mapNotNull null
         val pos = Triple(scanlineDir.first * d, scanlineDir.second * d, scanlineDir.third * d)
         val pole = m.toPole()
         val nvec = trendPlungeToXYZ(pole.trend, pole.plunge)

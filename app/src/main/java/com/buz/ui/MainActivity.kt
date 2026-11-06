@@ -598,12 +598,6 @@ private fun RoseAndStats(
             style = MaterialTheme.typography.titleSmall)
         Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Icon(Icons.Filled.Email, contentDescription = "Email", modifier = Modifier.size(14.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("github.com/rars2021", style = MaterialTheme.typography.bodySmall)
-        }
-        Spacer(Modifier.height(2.dp))
-        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Icon(Icons.Filled.Info, contentDescription = "GitHub", modifier = Modifier.size(14.dp))
             Spacer(Modifier.width(6.dp))
             Text("github.com/rars2021", style = MaterialTheme.typography.bodySmall)

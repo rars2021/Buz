@@ -16,7 +16,7 @@ En tu teléfono Android:
 
 ## 2. Abrir el proyecto
 
-1. Abrir Android Studio → **Open** → seleccionar la carpeta `~\Downloads\Port\DipsMobile`.
+1. Abrir Android Studio → **Open** → seleccionar la carpeta del repo clonado.
 2. La primera vez tardará unos minutos: bajará Gradle 8.5, Kotlin 1.9, AGP 8.5, Compose BOM 2024.05.
 3. Cuando termine el "Gradle sync", en la barra superior debería aparecer el módulo `app` como run configuration.
 

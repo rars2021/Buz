@@ -64,3 +64,7 @@ examples/ejemplo.csv         # Datos de prueba
 Ver [INSTALL.md](INSTALL.md) para pasos detallados.
 
 
+
+## Licencia
+
+[MIT](LICENSE) © 2026 rars2021.
